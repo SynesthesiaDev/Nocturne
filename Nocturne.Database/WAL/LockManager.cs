@@ -12,8 +12,8 @@ public sealed class LockManager
 
     public async Task AcquireLockAsync(long txId, int pageId, PageLock.Mode mode)
     {
-        TaskCompletionSource<bool> tsc = null!;
-        PageLock.Request request = null!;
+        TaskCompletionSource<bool> tsc;
+        PageLock.Request request;
 
         lock (pageLocks)
         {
