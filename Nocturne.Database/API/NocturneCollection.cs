@@ -5,11 +5,11 @@ using DotNetty.Buffers;
 
 namespace Nocturne.Database.API;
 
-public class NocturneCollection<TKey, TEntity>(NocturneKeySerializer<TKey> keySerializer, NocturneKeySerializer<TEntity> valueSerializer, NocturneDatabase databaseContext) where TEntity : class
+public class NocturneCollection<TKey, TEntity>(NocturneKeySerializer<TKey> keySerializer, INocturneSerializer<TEntity> valueSerializer, NocturneDatabase databaseContext) where TEntity : class
 {
     private readonly BPlusTree binaryTree = new BPlusTree();
     public readonly NocturneKeySerializer<TKey> KeySerializer = keySerializer;
-    public readonly NocturneKeySerializer<TEntity> ValueSerializer = valueSerializer;
+    public readonly INocturneSerializer<TEntity> ValueSerializer = valueSerializer;
     public readonly NocturneDatabase DatabaseContext = databaseContext;
 
     public TEntity FindOrNull(TKey id)

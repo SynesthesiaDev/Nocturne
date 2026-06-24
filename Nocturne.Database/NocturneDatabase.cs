@@ -1,5 +1,6 @@
 ﻿using Codon.Binary;
 using DotNetty.Buffers;
+using Nocturne.Database.API;
 using Nocturne.Database.WAL;
 using Serilog;
 
@@ -191,6 +192,11 @@ public class NocturneDatabase : IDisposable
 
             WriteAheadLog.CreateCheckpoint(BufferPool);
         }
+    }
+
+    public NocturneCollection<TKey, TValue> For<TKey, TValue>(NocturneKeySerializer<TKey> keySerializer, INocturneSerializer<TValue> valueSerializer) where TValue : class
+    {
+        return new NocturneCollection<TKey, TValue>(keySerializer, valueSerializer, this);
     }
 
     public void Dispose()

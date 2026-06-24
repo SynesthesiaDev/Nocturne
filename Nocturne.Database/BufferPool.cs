@@ -7,9 +7,6 @@ namespace Nocturne.Database;
 
 public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
 {
-    private readonly DiskManager diskManager = disk;
-    private readonly int capacity = capacity;
-
     //TODO Optimize to zero alloc BlitzMap with custom struct CacheFrame(Page, NextIndex, PrevIndex). Do this after all the things is functional and all
     private readonly Dictionary<int, (Page Page, LinkedListNode<int> Node)> frames = new();
 
@@ -39,7 +36,7 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
             Evict();
         }
 
-        var page = diskManager.ReadPage(id);
+        var page = disk.ReadPage(id);
         page.PinCount = 1;
         page.IsDirty = false;
 
@@ -62,11 +59,11 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
         foreach (var (page, _) in frames.Values)
         {
             if(!page.IsDirty) continue;
-            diskManager.WritePage(page);
+            disk.WritePage(page);
             page.IsDirty = false;
         }
 
-        diskManager.Flush();
+        disk.Flush();
     }
 
     public void Evict()
@@ -87,7 +84,7 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
         var (evicted, _) = frames[id];
 
         if (evicted.IsDirty)
-            diskManager.WritePage(evicted);
+            disk.WritePage(evicted);
 
         frames.Remove(id);
         lru.Remove(node);
