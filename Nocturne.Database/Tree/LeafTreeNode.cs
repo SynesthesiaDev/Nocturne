@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 SynesthesiaDev <synesthesiadev@proton.me>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using Codon.Binary;
 using DotNetty.Buffers;
 using Nocturne.Database.API;
 
@@ -10,9 +11,28 @@ public class LeafTreeNode : ITreeNode
 {
     private const int max_keys = BPlusTree.ORDER - 1;
 
+    public int PageId { get; set; }
+
+    public int NextPageId { get; set; }
+
     public required List<IByteBuffer> Keys { get; set; }
 
-    public ISplitResult Insert<TKey>(IByteBuffer key, IByteBuffer value, NocturneKeySerializer<TKey> keySerializer)
+    public required List<IByteBuffer> Values { get; set; }
+
+    public static readonly IBinaryCodec<LeafTreeNode> CODEC = BinaryCodecs.For<LeafTreeNode>()
+        .Field(BinaryCodecs.INT, n => n.PageId)
+        .Field(BinaryCodecs.INT, n => n.NextPageId)
+        .Field(BinaryCodecs.BYTE_BUFFER.List(), n => n.Keys)
+        .Field(BinaryCodecs.BYTE_BUFFER.List(), n => n.Values)
+        .Build((pageId, next, keys, values) => new LeafTreeNode
+        {
+            PageId = pageId,
+            Keys = keys,
+            Values = values,
+            NextPageId = next
+        });
+
+    public ISplitResult Insert<TKey>(IByteBuffer key, IByteBuffer value, NocturneKeySerializer<TKey> keySerializer, INodeProvider provider)
     {
         int index = 0;
         while (index < Keys.Count && keySerializer.Compare(Keys[index], key) < 0)
@@ -39,7 +59,6 @@ public class LeafTreeNode : ITreeNode
         {
             Keys = [],
             Values = [],
-            Next = null
         };
 
         int remainder = Keys.Count - mid;
@@ -58,12 +77,10 @@ public class LeafTreeNode : ITreeNode
         Keys.RemoveRange(mid, remainder);
         Values.RemoveRange(mid, remainder);
 
-        sibling.Next = Next;
-        Next = sibling;
+        sibling.NextPageId = NextPageId;
+        NextPageId = sibling.PageId;
 
         return ISplitResult.True(sibling, sibling.Keys[0]);
     }
 
-    public required List<IByteBuffer> Values { get; set; }
-    public required LeafTreeNode? Next { get; set; }
 }

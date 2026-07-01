@@ -8,7 +8,9 @@ namespace Nocturne.Database.Tree;
 
 public interface ITreeNode
 {
+    int PageId { get; set; }
+
     List<IByteBuffer> Keys { get; set; }
 
-    ISplitResult Insert<TKey>(IByteBuffer key, IByteBuffer value, NocturneKeySerializer<TKey> keySerializer);
+    ISplitResult Insert<TKey>(IByteBuffer key, IByteBuffer value, NocturneKeySerializer<TKey> keySerializer, INodeProvider provider);
 }

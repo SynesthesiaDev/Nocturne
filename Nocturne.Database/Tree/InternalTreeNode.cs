@@ -1,6 +1,7 @@
 ﻿// Copyright (c) 2026 SynesthesiaDev <synesthesiadev@proton.me>. Licensed under the MIT Licence.
 // See the LICENCE file in the repository root for full licence text.
 
+using Codon.Binary;
 using DotNetty.Buffers;
 using Nocturne.Database.API;
 
@@ -10,28 +11,48 @@ public class InternalTreeNode : ITreeNode
 {
     private const int max_keys = BPlusTree.ORDER - 1;
 
+    public int PageId { get; set; }
+
+    public required List<int> ChildPageIds { get; set; }
+
     public required List<IByteBuffer> Keys { get; set; }
 
-    public ISplitResult Insert<TKey>(IByteBuffer key, IByteBuffer value, NocturneKeySerializer<TKey> keySerializer)
-    {
-        int i = 0;
-        while (i < Keys.Count && keySerializer.Compare(key, Keys[i]) >= 0) i++;
+    public static readonly IBinaryCodec<InternalTreeNode> CODEC = BinaryCodecs.For<InternalTreeNode>()
+        .Field(BinaryCodecs.INT, n => n.PageId)
+        .Field(BinaryCodecs.INT.List(), n => n.ChildPageIds)
+        .Field(BinaryCodecs.BYTE_BUFFER.List(), n => n.Keys)
+        .Build((pageId, childs, keys) => new InternalTreeNode
+        {
+            PageId = pageId,
+            ChildPageIds = childs,
+            Keys = keys
+        });
 
-        var result = Children[i].Insert(key, value, keySerializer);
-        if (result is ISplitResult.None) return ISplitResult.False();
+    public ISplitResult Insert<TKey>(IByteBuffer key, IByteBuffer value, NocturneKeySerializer<TKey> keySerializer, INodeProvider provider)
+    {
+        int index = 0;
+        while (index < Keys.Count && keySerializer.Compare(key, Keys[index]) >= 0) index++;
+
+        var childPageId = ChildPageIds[index];
+        var childNode = provider.GetNode(childPageId);
+
+        var result = childNode.Insert(key, value, keySerializer, provider);
 
         var splitResult = (result as ISplitResult.Split)!;
-        Keys.Insert(i, splitResult.PromotedKey);
-        Children.Insert(i + 1, splitResult.NewNode);
+        Keys.Insert(index, splitResult.PromotedKey);
+        ChildPageIds.Insert(index + 1, splitResult.NewNode.PageId);
 
         if (Keys.Count <= max_keys) return ISplitResult.False();
 
-        var mid = Keys.Count / 2;
+        var newPageId = provider.AllocatePage();
         var sibling = new InternalTreeNode
         {
+            PageId = newPageId,
             Keys = [],
-            Children = []
+            ChildPageIds = []
         };
+
+        var mid = Keys.Count / 2;
 
         var promotedKey = Keys[mid];
 
@@ -39,15 +60,15 @@ public class InternalTreeNode : ITreeNode
         foreach (var k in keysToMove) k.Retain();
         sibling.Keys.AddRange(keysToMove);
 
-        sibling.Children.AddRange(Children.GetRange(mid + 1, Children.Count - (mid + 1)));
+        sibling.ChildPageIds.AddRange(ChildPageIds.GetRange(mid + 1, ChildPageIds.Count - (mid + 1)));
 
         foreach (var k in keysToMove) k.Release();
 
         Keys.RemoveRange(mid, Keys.Count - mid);
-        Children.RemoveRange(mid + 1, Children.Count - (mid + 1));
+        ChildPageIds.RemoveRange(mid + 1, ChildPageIds.Count - (mid + 1));
 
+        provider.SaveNode(sibling);
         return ISplitResult.True(sibling, promotedKey);
     }
 
-    public required List<ITreeNode> Children { get; set; }
 }

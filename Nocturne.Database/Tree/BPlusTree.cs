@@ -6,7 +6,7 @@ using Nocturne.Database.API;
 
 namespace Nocturne.Database.Tree;
 
-public class BPlusTree : IDisposable
+public class BPlusTree(INodeProvider provider) : IDisposable
 {
     public const int ORDER = 10;
 
@@ -16,7 +16,6 @@ public class BPlusTree : IDisposable
 
     private ITreeNode root = new LeafTreeNode
     {
-        Next = null,
         Keys = [],
         Values = []
     };
@@ -29,7 +28,7 @@ public class BPlusTree : IDisposable
         while (current is InternalTreeNode internalNode)
         {
             int i = findChildIndex(internalNode, keyBuffer, keySerializer);
-            current = internalNode.Children[i];
+            current = internalNode.ChildPageIds[i];
         }
 
         var (index, equals) = keySerializer.FindEquals(current.Keys, keyBuffer);
@@ -46,7 +45,7 @@ public class BPlusTree : IDisposable
             var newRoot = new InternalTreeNode
             {
                 Keys = [splitResult.PromotedKey],
-                Children = [root, splitResult.NewNode]
+                ChildPageIds = [root, splitResult.NewNode]
             };
 
             root = newRoot;
@@ -62,7 +61,7 @@ public class BPlusTree : IDisposable
         while (current is InternalTreeNode internalNode)
         {
             int i = findChildIndex(internalNode, key, keySerializer);
-            current = internalNode.Children[i];
+            current = internalNode.ChildPageIds[i];
         }
 
         var leaf = (LeafTreeNode)current;
@@ -86,7 +85,7 @@ public class BPlusTree : IDisposable
 
         while (current is InternalTreeNode internalNode)
         {
-            current = internalNode.Children[0];
+            current = internalNode.ChildPageIds[0];
         }
 
         LeafTreeNode? leaf = current as LeafTreeNode;
@@ -109,7 +108,7 @@ public class BPlusTree : IDisposable
 
         while (current is InternalTreeNode internalNode)
         {
-            current = internalNode.Children[0];
+            current = internalNode.ChildPageIds[0];
         }
 
         LeafTreeNode? leaf = current as LeafTreeNode;
@@ -132,7 +131,7 @@ public class BPlusTree : IDisposable
 
         while (current is InternalTreeNode internalNode)
         {
-            current = internalNode.Children[0];
+            current = (InternalTreeNode)provider.GetNode(internalNode.ChildPageIds[0]);
         }
 
         LeafTreeNode? leaf = current as LeafTreeNode;
@@ -166,7 +165,7 @@ public class BPlusTree : IDisposable
         ITreeNode current = root;
         while (current is InternalTreeNode internalNode)
         {
-            current = internalNode.Children[0];
+            current = provider.GetNode(internalNode.ChildPageIds[0]);
         }
 
         LeafTreeNode? leaf = current as LeafTreeNode;
@@ -177,12 +176,11 @@ public class BPlusTree : IDisposable
 
             leaf.Keys.Clear();
             leaf.Values.Clear();
-            leaf = leaf.Next;
+            leaf = (LeafTreeNode)provider.GetNode(leaf.NextPageId);
         }
 
         root = new LeafTreeNode
         {
-            Next = null,
             Keys = [],
             Values = []
         };
@@ -197,7 +195,7 @@ public class BPlusTree : IDisposable
         ITreeNode current = root;
         while (current is InternalTreeNode internalNode)
         {
-            current = internalNode.Children[0];
+            current = provider.GetNode(internalNode.ChildPageIds[0]);
         }
 
         LeafTreeNode? leaf = current as LeafTreeNode;
@@ -208,7 +206,7 @@ public class BPlusTree : IDisposable
 
             leaf.Keys.Clear();
             leaf.Values.Clear();
-            leaf = leaf.Next;
+            leaf = (LeafTreeNode)provider.GetNode(leaf.NextPageId);
         }
     }
 }

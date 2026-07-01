@@ -48,7 +48,7 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
 
     public void Unpin(int id, bool isDirty = false)
     {
-        if(!frames.TryGetValue(id, out var entry)) return;
+        if (!frames.TryGetValue(id, out var entry)) return;
 
         entry.Page.PinCount = Math.Max(0, entry.Page.PinCount - 1);
         if (isDirty) entry.Page.IsDirty = true;
@@ -58,7 +58,7 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
     {
         foreach (var (page, _) in frames.Values)
         {
-            if(!page.IsDirty) continue;
+            if (!page.IsDirty) continue;
             disk.WritePage(page);
             page.IsDirty = false;
         }
@@ -73,7 +73,7 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
         while (node is not null)
         {
             var (page, _) = frames[node.Value];
-            if(page.PinCount == 0) break;
+            if (page.PinCount == 0) break;
             node = node.Previous;
         }
 
@@ -88,10 +88,18 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
 
         frames.Remove(id);
         lru.Remove(node);
+
+        evicted.Data.Release();
     }
 
     public void Dispose()
     {
         FlushAll();
+
+        foreach (var entry in frames.Values)
+            entry.Page.Data.Release();
+
+        frames.Clear();
+        lru.Clear();
     }
 }
