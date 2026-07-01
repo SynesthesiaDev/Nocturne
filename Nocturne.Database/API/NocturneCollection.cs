@@ -6,20 +6,124 @@ using Nocturne.Database.Tree;
 
 namespace Nocturne.Database.API;
 
-public class NocturneCollection<TKey, TEntity>(NocturneKeySerializer<TKey> keySerializer, INocturneSerializer<TEntity> valueSerializer, NocturneDatabase databaseContext) where TEntity : class
+public class NocturneCollection<TKey, TValue>(NocturneKeySerializer<TKey> keySerializer, INocturneSerializer<TValue> valueSerializer, NocturneDatabase databaseContext) where TValue : class
 {
-    private readonly BPlusTree binaryTree = new BPlusTree();
+    private BPlusTree binaryTree = new BPlusTree();
     public readonly NocturneKeySerializer<TKey> KeySerializer = keySerializer;
-    public readonly INocturneSerializer<TEntity> ValueSerializer = valueSerializer;
+    public readonly INocturneSerializer<TValue> ValueSerializer = valueSerializer;
     public readonly NocturneDatabase DatabaseContext = databaseContext;
 
-    public TEntity FindOrNull(TKey id)
+    public IEnumerable<TKey> Keys
+    {
+        get
+        {
+            foreach (var keyBuffer in binaryTree.IterateAllKeys())
+            {
+                TKey key;
+
+                try
+                {
+                    key = KeySerializer.Read(keyBuffer);
+                }
+                finally
+                {
+                    keyBuffer.Release();
+                }
+
+                yield return key;
+            }
+        }
+    }
+
+    public IEnumerable<TValue> Values
+    {
+        get
+        {
+            foreach (var kvp in binaryTree.IterateAllValues())
+            {
+                TValue value;
+
+                try
+                {
+                    value = ValueSerializer.Read(kvp);
+                }
+                finally
+                {
+                    kvp.Release();
+                }
+
+                yield return value;
+            }
+        }
+    }
+
+    public IEnumerable<KeyValuePair<TKey, TValue>> KeyValuePairs
+    {
+        get
+        {
+            foreach (var kvp in binaryTree.IterateKeyAndValuePairs())
+            {
+                TKey key;
+                TValue value;
+
+                try
+                {
+                    key = KeySerializer.Read(kvp.Key);
+                    value = ValueSerializer.Read(kvp.Value);
+                }
+                finally
+                {
+                    kvp.Key.Release();
+                    kvp.Value.Release();
+                }
+
+                yield return new KeyValuePair<TKey, TValue>(key, value);
+            }
+        }
+    }
+
+    public long Count => binaryTree.Count;
+
+    public void Insert(TKey key, TValue value)
+    {
+        var keyBuffer = Unpooled.Buffer();
+        var valueBuffer = Unpooled.Buffer();
+        try
+        {
+            KeySerializer.Write(keyBuffer, key);
+            ValueSerializer.Write(keyBuffer, value);
+            binaryTree.Insert(keyBuffer, valueBuffer, KeySerializer);
+        }
+        finally
+        {
+            keyBuffer.Release();
+            valueBuffer.Release();
+        }
+    }
+
+    public void Delete(TKey key)
     {
         var keyBuffer = Unpooled.Buffer();
         try
         {
-            KeySerializer.Write(keyBuffer, id);
+            KeySerializer.Write(keyBuffer, key);
+            binaryTree.Delete(keyBuffer, KeySerializer);
+        }
+        finally
+        {
+            keyBuffer.Release();
+        }
+    }
+
+    public TValue? FindOrNull(TKey key)
+    {
+        var keyBuffer = Unpooled.Buffer();
+        try
+        {
+            KeySerializer.Write(keyBuffer, key);
             var valueBuffer = binaryTree.Search(keyBuffer, KeySerializer);
+            if (valueBuffer == null) return null;
+
             try
             {
                 return ValueSerializer.Read(valueBuffer);
@@ -35,11 +139,41 @@ public class NocturneCollection<TKey, TEntity>(NocturneKeySerializer<TKey> keySe
         }
     }
 
-    public IEnumerable<TEntity> FindAllWhere(Func<TEntity, bool> predicate)
+    public TValue Find(TKey key) => FindOrNull(key) ?? throw new KeyNotFoundException();
+
+    public TValue FindOrAdd(TKey key, Func<TKey, TValue> valueFactory)
+    {
+        var existing = FindOrNull(key);
+        if (existing != null) return existing;
+
+        var newValue = valueFactory.Invoke(key);
+        Insert(key, newValue);
+        return newValue;
+    }
+
+    public bool ContainsKey(TKey key)
+    {
+        var keyBuffer = Unpooled.Buffer();
+        try
+        {
+            KeySerializer.Write(keyBuffer, key);
+            var valueBuffer = binaryTree.Search(keyBuffer, KeySerializer);
+            if (valueBuffer == null) return false;
+
+            valueBuffer.Release();
+            return true;
+        }
+        finally
+        {
+            keyBuffer.Release();
+        }
+    }
+
+    public IEnumerable<TValue> FindAllWhere(Func<TValue, bool> predicate)
     {
         foreach (var valueBuffer in binaryTree.IterateAllValues())
         {
-            TEntity entity;
+            TValue entity;
             try
             {
                 var value = ValueSerializer.Read(valueBuffer);
@@ -57,11 +191,30 @@ public class NocturneCollection<TKey, TEntity>(NocturneKeySerializer<TKey> keySe
         }
     }
 
-    public IEnumerable<TEntity> FindAll()
+    public void Compact()
+    {
+        Transaction(_ =>
+        {
+            var newTree = new BPlusTree();
+
+            foreach (var kvp in binaryTree.IterateKeyAndValuePairs())
+            {
+                newTree.Insert(kvp.Key, kvp.Value, KeySerializer);
+
+                kvp.Key.Release();
+                kvp.Value.Release();
+            }
+
+            binaryTree.Dispose();
+            binaryTree = newTree;
+        });
+    }
+
+    public IEnumerable<TValue> FindAll()
     {
         foreach (var valueBuffer in binaryTree.IterateAllValues())
         {
-            TEntity entity;
+            TValue entity;
             try
             {
                 var value = ValueSerializer.Read(valueBuffer);
@@ -76,7 +229,16 @@ public class NocturneCollection<TKey, TEntity>(NocturneKeySerializer<TKey> keySe
         }
     }
 
-    public void Transaction(Action<NocturneCollection<TKey, TEntity>> action)
+    public void Update(TKey key, Action<TValue> action)
+    {
+        var value = Find(key);
+        action.Invoke(value);
+        Insert(key, value);
+    }
+
+    public void Nuke() => Transaction(_ => binaryTree.Clear());
+
+    public void Transaction(Action<NocturneCollection<TKey, TValue>> action)
     {
         var tx = DatabaseContext.BeginTransaction();
         try
@@ -94,6 +256,4 @@ public class NocturneCollection<TKey, TEntity>(NocturneKeySerializer<TKey> keySe
             DatabaseContext.EndTransaction();
         }
     }
-
-
 }

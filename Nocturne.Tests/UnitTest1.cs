@@ -5,7 +5,7 @@ namespace Nocturne.Tests;
 public class Tests
 {
     public NocturneDatabase Nocturne;
-    
+
     [SetUp]
     public void Setup()
     {
@@ -14,13 +14,19 @@ public class Tests
             FilePath = "./data/database.db",
             SchemaVersion = 0
         };
-        
+
         Nocturne.Open();
     }
 
     [Test]
     public void Test1()
     {
-        
+
+    }
+
+    [TearDown]
+    public void Dispose()
+    {
+        Nocturne.Dispose();
     }
 }

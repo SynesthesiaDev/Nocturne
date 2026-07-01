@@ -6,9 +6,13 @@ using Nocturne.Database.API;
 
 namespace Nocturne.Database.Tree;
 
-public class BPlusTree
+public class BPlusTree : IDisposable
 {
     public const int ORDER = 10;
+
+    public bool IsDisposed { get; private set; }
+
+    public long Count { get; private set; }
 
     private ITreeNode root = new LeafTreeNode
     {
@@ -19,6 +23,7 @@ public class BPlusTree
 
     public IByteBuffer? Search<TKey>(IByteBuffer keyBuffer, NocturneKeySerializer<TKey> keySerializer)
     {
+        ObjectDisposedException.ThrowIf(IsDisposed, "Tree is already disposed");
         ITreeNode current = root;
 
         while (current is InternalTreeNode internalNode)
@@ -33,6 +38,7 @@ public class BPlusTree
 
     public void Insert<TKey>(IByteBuffer keyBuffer, IByteBuffer valueBuffer, NocturneKeySerializer<TKey> keySerializer)
     {
+        ObjectDisposedException.ThrowIf(IsDisposed, "Tree is already disposed");
         var result = root.Insert(keyBuffer, valueBuffer, keySerializer);
 
         if (result is ISplitResult.Split splitResult)
@@ -44,12 +50,105 @@ public class BPlusTree
             };
 
             root = newRoot;
+
+            if (result is not ISplitResult.Replacement) Count++;
         }
+    }
+
+    public bool Delete<TKey>(IByteBuffer key, NocturneKeySerializer<TKey> keySerializer)
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, "Tree is already disposed");
+        ITreeNode current = root;
+        while (current is InternalTreeNode internalNode)
+        {
+            int i = findChildIndex(internalNode, key, keySerializer);
+            current = internalNode.Children[i];
+        }
+
+        var leaf = (LeafTreeNode)current;
+        var (index, equals) = keySerializer.FindEquals(leaf.Keys, key);
+
+        if (!equals) return false;
+
+        Count--;
+        leaf.Keys[index].Release();
+        leaf.Values[index].Release();
+
+        leaf.Keys.RemoveAt(index);
+        leaf.Values.RemoveAt(index);
+        return true;
     }
 
     public IEnumerable<IByteBuffer> IterateAllValues()
     {
-        throw new NotImplementedException();
+        ObjectDisposedException.ThrowIf(IsDisposed, "Tree is already disposed");
+        var current = root;
+
+        while (current is InternalTreeNode internalNode)
+        {
+            current = internalNode.Children[0];
+        }
+
+        LeafTreeNode? leaf = current as LeafTreeNode;
+
+        while (leaf != null)
+        {
+            foreach (var value in leaf.Values)
+            {
+                yield return value.RetainedDuplicate();
+            }
+
+            leaf = leaf.Next;
+        }
+    }
+
+    public IEnumerable<IByteBuffer> IterateAllKeys()
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, "Tree is already disposed");
+        var current = root;
+
+        while (current is InternalTreeNode internalNode)
+        {
+            current = internalNode.Children[0];
+        }
+
+        LeafTreeNode? leaf = current as LeafTreeNode;
+
+        while (leaf != null)
+        {
+            foreach (var value in leaf.Keys)
+            {
+                yield return value.RetainedDuplicate();
+            }
+
+            leaf = leaf.Next;
+        }
+    }
+
+    public IEnumerable<KeyValuePair<IByteBuffer, IByteBuffer>> IterateKeyAndValuePairs()
+    {
+        ObjectDisposedException.ThrowIf(IsDisposed, "Tree is already disposed");
+        var current = root;
+
+        while (current is InternalTreeNode internalNode)
+        {
+            current = internalNode.Children[0];
+        }
+
+        LeafTreeNode? leaf = current as LeafTreeNode;
+
+        while (leaf != null)
+        {
+            for (var i = 0; i < leaf.Values.Count; i++)
+            {
+                var keyBuffer = leaf.Keys[i];
+                var valueBuffer = leaf.Values[i];
+
+                yield return new KeyValuePair<IByteBuffer, IByteBuffer>(keyBuffer.RetainedDuplicate(), valueBuffer.RetainedDuplicate());
+            }
+
+            leaf = leaf.Next;
+        }
     }
 
     private static int findChildIndex<TKey>(InternalTreeNode node, IByteBuffer target, NocturneKeySerializer<TKey> keySerializer)
@@ -59,5 +158,57 @@ public class BPlusTree
             i++;
 
         return i;
+    }
+
+    public void Clear()
+    {
+        Count = 0;
+        ITreeNode current = root;
+        while (current is InternalTreeNode internalNode)
+        {
+            current = internalNode.Children[0];
+        }
+
+        LeafTreeNode? leaf = current as LeafTreeNode;
+        while (leaf != null)
+        {
+            foreach (var k in leaf.Keys) k.Release();
+            foreach (var v in leaf.Values) v.Release();
+
+            leaf.Keys.Clear();
+            leaf.Values.Clear();
+            leaf = leaf.Next;
+        }
+
+        root = new LeafTreeNode
+        {
+            Next = null,
+            Keys = [],
+            Values = []
+        };
+    }
+
+    public void Dispose()
+    {
+        if (IsDisposed) return;
+        IsDisposed = true;
+
+        Count = 0;
+        ITreeNode current = root;
+        while (current is InternalTreeNode internalNode)
+        {
+            current = internalNode.Children[0];
+        }
+
+        LeafTreeNode? leaf = current as LeafTreeNode;
+        while (leaf != null)
+        {
+            foreach (var k in leaf.Keys) k.Release();
+            foreach (var v in leaf.Values) v.Release();
+
+            leaf.Keys.Clear();
+            leaf.Values.Clear();
+            leaf = leaf.Next;
+        }
     }
 }

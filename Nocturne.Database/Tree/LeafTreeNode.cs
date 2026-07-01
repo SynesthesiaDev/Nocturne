@@ -20,8 +20,16 @@ public class LeafTreeNode : ITreeNode
             index++;
         }
 
-        Keys.Insert(index, key);
-        Values.Insert(index, value);
+        if (index < Keys.Count && keySerializer.Compare(Keys[index], key) == 0)
+        {
+            Values[index].Release();
+            Values[index] = value.RetainedDuplicate();
+
+            return ISplitResult.Update();
+        }
+
+        Keys.Insert(index, key.RetainedDuplicate());
+        Values.Insert(index, value.RetainedDuplicate());
 
         if (Keys.Count <= max_keys)
             return ISplitResult.False();
@@ -35,8 +43,17 @@ public class LeafTreeNode : ITreeNode
         };
 
         int remainder = Keys.Count - mid;
-        sibling.Keys.AddRange(Keys.GetRange(mid, remainder));
-        sibling.Values.AddRange(Values.GetRange(mid, remainder));
+        var keysToMove = Keys.GetRange(mid, remainder);
+        var valuesToMove = Values.GetRange(mid, remainder);
+
+        foreach (var k in keysToMove) k.Retain();
+        foreach (var v in valuesToMove) v.Retain();
+
+        sibling.Keys.AddRange(keysToMove);
+        sibling.Values.AddRange(valuesToMove);
+
+        foreach (var k in keysToMove) k.Release();
+        foreach (var v in valuesToMove) v.Release();
 
         Keys.RemoveRange(mid, remainder);
         Values.RemoveRange(mid, remainder);

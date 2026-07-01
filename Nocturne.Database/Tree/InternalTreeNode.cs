@@ -34,8 +34,14 @@ public class InternalTreeNode : ITreeNode
         };
 
         var promotedKey = Keys[mid];
-        sibling.Keys.AddRange(Keys.GetRange(mid + 1, Keys.Count - (mid + 1)));
+
+        var keysToMove = Keys.GetRange(mid + 1, Keys.Count - (mid + 1));
+        foreach (var k in keysToMove) k.Retain();
+        sibling.Keys.AddRange(keysToMove);
+
         sibling.Children.AddRange(Children.GetRange(mid + 1, Children.Count - (mid + 1)));
+
+        foreach (var k in keysToMove) k.Release();
 
         Keys.RemoveRange(mid, Keys.Count - mid);
         Children.RemoveRange(mid + 1, Children.Count - (mid + 1));
