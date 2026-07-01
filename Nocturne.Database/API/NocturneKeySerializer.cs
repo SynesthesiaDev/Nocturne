@@ -10,7 +10,7 @@ public abstract class NocturneKeySerializer<T> : INocturneSerializer<T>
     public abstract T Read(IByteBuffer buffer);
     public abstract void Write(IByteBuffer buffer, T value);
 
-    public bool Compare(IByteBuffer left, IByteBuffer right)
+    public int Compare(IByteBuffer left, IByteBuffer right)
     {
         left.MarkReaderIndex();
         right.MarkReaderIndex();
@@ -18,7 +18,7 @@ public abstract class NocturneKeySerializer<T> : INocturneSerializer<T>
         try
         {
             var leftValue = Read(left);
-            var rightValue = Read(left);
+            var rightValue = Read(right);
 
             return CompareValues(leftValue, rightValue);
         }
@@ -29,5 +29,18 @@ public abstract class NocturneKeySerializer<T> : INocturneSerializer<T>
         }
     }
 
-    protected abstract bool CompareValues(T left, T right);
+    public (int, bool) FindEquals(List<IByteBuffer> keys, IByteBuffer keyBuffer)
+    {
+        foreach (var (index, buffer) in keys.Index())
+        {
+            if (Compare(buffer, keyBuffer) == 0)
+            {
+                return (index, true);
+            }
+        }
+
+        return (-1, false);
+    }
+
+    protected abstract int CompareValues(T left, T right);
 }

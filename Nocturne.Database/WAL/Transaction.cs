@@ -90,7 +90,6 @@ public sealed class Transaction
         lockManager.ReleaseAll(Id);
     }
 
-
     public record LocalUpdateRecord(int PageId, int Offset, byte[] OldValue);
 
     public enum State
