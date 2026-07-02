@@ -31,6 +31,23 @@ public class DiskManager : IDisposable
     {
         if (id == 0) throw new InvalidOperationException("Cannot read Header as a Page");
 
+        var expectedOffset = (long)id * Page.SIZE;
+
+        if (databaseStream.Length <= expectedOffset)
+        {
+            return createBlankPage(id);
+        }
+
+        databaseStream.Seek(expectedOffset, SeekOrigin.Begin);
+        var versionBytes = new byte[4];
+        databaseStream.ReadExactly(versionBytes, 0, 4);
+        int version = BitConverter.ToInt32(versionBytes, 0);
+
+        if (version == 0)
+        {
+            return createBlankPage(id);
+        }
+
         var array = ArrayPool<byte>.Shared.Rent(Page.SIZE);
         databaseStream.Seek((long)id * Page.SIZE, SeekOrigin.Begin);
         // databaseStream.Seek((long)(id + 1) * Page.SIZE, SeekOrigin.Begin);
@@ -40,6 +57,20 @@ public class DiskManager : IDisposable
         ArrayPool<byte>.Shared.Return(array);
 
         return page;
+    }
+
+    private Page createBlankPage(int id)
+    {
+        return new Page(
+            PageVersion: SharedConstants.PAGE_VERSION,
+            Id: id,
+            PageType: Page.Type.Free,
+            Reserved: false,
+            FreeOffset: 0,
+            NextPage: 0,
+            Checksum: 0,
+            Data: Unpooled.Buffer(Page.DATA_SIZE).WriteZero(Page.DATA_SIZE)
+        );
     }
 
     public void WritePage(Page page)
@@ -59,12 +90,10 @@ public class DiskManager : IDisposable
 
     public int AllocatePage()
     {
-        var id = PageCount == 0 ? 1 : PageCount;
-        PageCount++;
-
+        var id = ++PageCount;
         databaseStream.SetLength((long)(PageCount + 1) * Page.SIZE);
 
-        Log.Verbose("Allocated page {id} (stream now lenght {len})", id, databaseStream.Length);
+        Log.Verbose("Allocated page {id} (stream now length {len})", id, databaseStream.Length);
 
         return id;
     }
@@ -87,10 +116,9 @@ public class DiskManager : IDisposable
 
     public void WriteHeaderBytes(byte[] headerBytes)
     {
-        using var stream = new FileStream(Database.FilePath, FileMode.Open, FileAccess.Write, FileShare.ReadWrite);
-        stream.Seek(0, SeekOrigin.Begin);
-        stream.Write(headerBytes, 0, headerBytes.Length);
-        stream.Flush(flushToDisk: true);
+        databaseStream.Seek(0, SeekOrigin.Begin);
+        databaseStream.Write(headerBytes, 0, headerBytes.Length);
+        databaseStream.Flush(flushToDisk: true);
     }
 
     public void Compact()

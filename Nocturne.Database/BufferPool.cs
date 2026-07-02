@@ -46,12 +46,33 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
         return page;
     }
 
+    public void UpdatePageInFrame(int pageId, Page updatedPage)
+    {
+        if (frames.TryGetValue(pageId, out var entry))
+        {
+            frames[pageId] = (updatedPage, entry.Node);
+        }
+        else
+        {
+            var node = lru.AddFirst(pageId);
+            frames[pageId] = (updatedPage, node);
+        }
+    }
+
     public void Unpin(int id, bool isDirty = false)
     {
         if (!frames.TryGetValue(id, out var entry)) return;
 
-        entry.Page.PinCount = Math.Max(0, entry.Page.PinCount - 1);
-        if (isDirty) entry.Page.IsDirty = true;
+        var newPinCount = Math.Max(0, entry.Page.PinCount - 1);
+        var newIsDirty = entry.Page.IsDirty || isDirty;
+
+        var updatedPage = entry.Page with
+        {
+            PinCount = newPinCount,
+            IsDirty = newIsDirty
+        };
+
+        frames[id] = (updatedPage, entry.Node);
     }
 
     public void FlushAll()
@@ -97,7 +118,9 @@ public class BufferPool(DiskManager disk, int capacity = 256) : IDisposable
         FlushAll();
 
         foreach (var entry in frames.Values)
+        {
             entry.Page.Data.Release();
+        }
 
         frames.Clear();
         lru.Clear();

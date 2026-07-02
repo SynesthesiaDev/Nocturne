@@ -211,14 +211,27 @@ public class NocturneDatabase : IDisposable
         Log.Information("Closing database gracefully..");
         lock (txLock)
         {
-            WriteAheadLog.CreateCheckpoint(BufferPool);
+            try
+            {
+                if (WriteAheadLog != null && BufferPool != null)
+                    WriteAheadLog.CreateCheckpoint(BufferPool);
 
-            var finalHeader = Header with { Transactions = Header.Transactions };
-            SaveHeader(finalHeader);
-
-            WriteAheadLog.Dispose();
-            DiskManager.Dispose();
-            BufferPool.Dispose();
+                if (Header != null && DiskManager != null)
+                {
+                    var finalHeader = Header with { Transactions = Header.Transactions };
+                    SaveHeader(finalHeader);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error during database checkpoint/header save during disposal");
+            }
+            finally
+            {
+                WriteAheadLog?.Dispose();
+                BufferPool?.Dispose();
+                DiskManager?.Dispose();
+            }
         }
 
         Log.Information("Database closed safely.");

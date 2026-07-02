@@ -54,14 +54,14 @@ public record Page(int PageVersion, int Id, Page.Type PageType, bool Reserved, s
             {
                 case 1: header_v1_codec.Write(buffer, page); break;
                 case 2: header_v2_codec.Write(buffer, page); break;
-                default: throw new InvalidOperationException("Unknown page version");
+                default: throw new InvalidOperationException($"Unknown page version ({page.PageVersion})");
             }
 
             var headerBytes = page.PageVersion switch
             {
                 1 => v1_header_bytes,
                 2 => v2_header_bytes,
-                _ => throw new InvalidOperationException("Unknown page version")
+                _ => throw new InvalidOperationException($"Unknown page version ({page.PageVersion})")
             };
 
             buffer.WriteZero(HEADER_ALLOC - headerBytes);
@@ -77,7 +77,7 @@ public record Page(int PageVersion, int Id, Page.Type PageType, bool Reserved, s
             {
                 1 => header_v1_codec.Read(buffer),
                 2 => header_v2_codec.Read(buffer),
-                _ => throw new InvalidOperationException("Unknown page version")
+                _ => throw new InvalidOperationException($"Unknown page version ({version})")
             };
 
             buffer.SetReaderIndex(HEADER_ALLOC);

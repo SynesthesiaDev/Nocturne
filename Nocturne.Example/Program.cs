@@ -26,9 +26,18 @@ public class Program
 
         NOCTURNE_DATABASE.Open();
 
-        var stelle = new Person("Stelle", 23, true, "faggot");
+        // var stelle = new Person("Stelle", 23, true, "faggot");
+        //
+        // Person.DB_COLLECTION.Transaction(_ =>
+        // {
+        //     Person.DB_COLLECTION.Insert(0, stelle);
+        // });
 
-        Person.DB_COLLECTION.Insert(0, stelle);
+        NOCTURNE_DATABASE.Compact();
+
+        var stelle =  Person.DB_COLLECTION.FindOrNull(0);
+        Log.Information("from db: {stelle}", stelle);
+        Utils.DumpDatabaseStructure(NOCTURNE_DATABASE);
     }
 }
 

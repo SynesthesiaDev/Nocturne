@@ -90,6 +90,6 @@ public class LeafTreeNode : ITreeNode
         return ISplitResult.True(sibling, sibling.Keys[0]);
     }
 
-    public LeafTreeNode? GetNext(INodeProvider provider) => (LeafTreeNode)provider.GetNode(NextPageId);
+    public LeafTreeNode? GetNext(INodeProvider provider) => NextPageId == 0 ? null : (LeafTreeNode)provider.GetNode(NextPageId);
 
 }

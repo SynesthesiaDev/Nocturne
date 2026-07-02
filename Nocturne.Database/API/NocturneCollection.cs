@@ -91,7 +91,7 @@ public class NocturneCollection<TKey, TValue>(NocturneKeySerializer<TKey> keySer
         try
         {
             KeySerializer.Write(keyBuffer, key);
-            ValueSerializer.Write(keyBuffer, value);
+            ValueSerializer.Write(valueBuffer, value);
             binaryTree.Insert(keyBuffer, valueBuffer, KeySerializer);
         }
         finally

@@ -26,9 +26,12 @@ public class BPlusTree : IDisposable
 
         if (databaseContext.DiskManager.PageCount == 0)
         {
+
+            var allocatedId = provider.AllocatePage();
+
             root = new LeafTreeNode
             {
-                PageId = rootPageId,
+                PageId = allocatedId,
                 Keys = [],
                 Values = [],
                 NextPageId = 0

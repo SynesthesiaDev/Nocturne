@@ -31,12 +31,20 @@ public class DiskNodeProvider(DiskManager diskManager, BufferPool bufferPool) : 
         {
             page.Data.Clear();
 
+            var updatedPage = page with
+            {
+                PageType = node is LeafTreeNode ? Page.Type.Leaf : Page.Type.Internal,
+                PageVersion = SharedConstants.PAGE_VERSION,
+            };
+
             if (node is LeafTreeNode leaf)
                 LeafTreeNode.CODEC.Write(page.Data, leaf);
             else
             {
                 InternalTreeNode.CODEC.Write(page.Data, (InternalTreeNode)node);
             }
+
+            bufferPool.UpdatePageInFrame(page.Id, updatedPage);
         }
         finally
         {
