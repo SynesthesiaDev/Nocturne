@@ -29,8 +29,11 @@ public class DiskManager : IDisposable
 
     public Page ReadPage(int id)
     {
+        if (id == 0) throw new InvalidOperationException("Cannot read Header as a Page");
+
         var array = ArrayPool<byte>.Shared.Rent(Page.SIZE);
-        databaseStream.Seek((long)(id + 1) * Page.SIZE, SeekOrigin.Begin);
+        databaseStream.Seek((long)id * Page.SIZE, SeekOrigin.Begin);
+        // databaseStream.Seek((long)(id + 1) * Page.SIZE, SeekOrigin.Begin);
         databaseStream.ReadExactly(array, 0, Page.SIZE);
 
         var page = Page.CODEC.Read(Unpooled.CopiedBuffer(array, 0, Page.SIZE));
@@ -56,8 +59,10 @@ public class DiskManager : IDisposable
 
     public int AllocatePage()
     {
-        var id = PageCount++;
-        databaseStream.SetLength((long)PageCount * Page.SIZE);
+        var id = PageCount == 0 ? 1 : PageCount;
+        PageCount++;
+
+        databaseStream.SetLength((long)(PageCount + 1) * Page.SIZE);
 
         Log.Verbose("Allocated page {id} (stream now lenght {len})", id, databaseStream.Length);
 

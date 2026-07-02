@@ -5,13 +5,14 @@ using Codon.Binary;
 
 namespace Nocturne.Database;
 
-public record DatabaseHeader(int HeaderVersion, int NocturneVersion, int SchemaVersion, long Transactions)
+public record DatabaseHeader(int HeaderVersion, int NocturneVersion, int SchemaVersion, long Transactions, int RootPageId)
 {
     public const int HEADER_SIZE = 4096;
     public const int MAGIC_SIGNATURE = 0x4E4F4354;
 
     // Changes:
     // v2 - Removed PageSize field
+    // v3 - Added RootPageId
 
     private static readonly IBinaryCodec<DatabaseHeader> header_v1_codec = BinaryCodecs.For<DatabaseHeader>()
         .Field(BinaryCodecs.INT, d => d.HeaderVersion)
@@ -19,14 +20,23 @@ public record DatabaseHeader(int HeaderVersion, int NocturneVersion, int SchemaV
         .Field(BinaryCodecs.INT, d => d.SchemaVersion)
         .Field(BinaryCodecs.LONG, d => d.Transactions)
         .Field(BinaryCodecs.INT, _ => Page.SIZE)
-        .Build((header, ver, schema, trans, _) => new DatabaseHeader(header, ver, schema, trans));
+        .Build((header, ver, schema, trans, _) => new DatabaseHeader(header, ver, schema, trans, 1));
 
     private static readonly IBinaryCodec<DatabaseHeader> header_v2_codec = BinaryCodecs.For<DatabaseHeader>()
         .Field(BinaryCodecs.INT, d => d.HeaderVersion)
         .Field(BinaryCodecs.INT, d => d.NocturneVersion)
         .Field(BinaryCodecs.INT, d => d.SchemaVersion)
         .Field(BinaryCodecs.LONG, d => d.Transactions)
-        .Build((header, ver, schema, trans) => new DatabaseHeader(header, ver, schema, trans));
+        .Build((header, ver, schema, trans) => new DatabaseHeader(header, ver, schema, trans, 1));
+
+    private static readonly IBinaryCodec<DatabaseHeader> header_v3_codec = BinaryCodecs.For<DatabaseHeader>()
+        .Field(BinaryCodecs.INT, d => d.HeaderVersion)
+        .Field(BinaryCodecs.INT, d => d.NocturneVersion)
+        .Field(BinaryCodecs.INT, d => d.SchemaVersion)
+        .Field(BinaryCodecs.LONG, d => d.Transactions)
+        .Field(BinaryCodecs.INT, d => d.RootPageId)
+        .Build((header, ver, schema, trans, root) => new DatabaseHeader(header, ver, schema, trans, root));
+
 
     public static readonly IBinaryCodec<DatabaseHeader> CODEC = BinaryCodecs.Custom<DatabaseHeader>
     (
@@ -37,6 +47,7 @@ public record DatabaseHeader(int HeaderVersion, int NocturneVersion, int SchemaV
             {
                 case 1: header_v1_codec.Write(buffer, header); break;
                 case 2: header_v2_codec.Write(buffer, header); break;
+                case 3: header_v3_codec.Write(buffer, header); break;
                 default: throw new InvalidOperationException($"Unsupported header format: {header.HeaderVersion})");
             }
 
@@ -57,6 +68,7 @@ public record DatabaseHeader(int HeaderVersion, int NocturneVersion, int SchemaV
             {
                 1 => header_v1_codec.Read(buffer),
                 2 => header_v2_codec.Read(buffer),
+                3 => header_v3_codec.Read(buffer),
                 _ => throw new InvalidOperationException($"Unknown database header version: {version}")
             };
 

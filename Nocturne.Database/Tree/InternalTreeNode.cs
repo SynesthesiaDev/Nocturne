@@ -38,16 +38,20 @@ public class InternalTreeNode : ITreeNode
 
         var result = childNode.Insert(key, value, keySerializer, provider);
 
-        var splitResult = (result as ISplitResult.Split)!;
-        Keys.Insert(index, splitResult.PromotedKey);
-        ChildPageIds.Insert(index + 1, splitResult.NewNode.PageId);
+        if (result is ISplitResult.Split splitResult)
+        {
+            Keys.Insert(index, splitResult.PromotedKey);
+            ChildPageIds.Insert(index + 1, splitResult.NewNode.PageId);
+
+            provider.SaveNode(splitResult.NewNode);
+        }
+        provider.SaveNode(this);
 
         if (Keys.Count <= max_keys) return ISplitResult.False();
 
-        var newPageId = provider.AllocatePage();
         var sibling = new InternalTreeNode
         {
-            PageId = newPageId,
+            PageId = provider.AllocatePage(),
             Keys = [],
             ChildPageIds = []
         };
@@ -68,6 +72,7 @@ public class InternalTreeNode : ITreeNode
         ChildPageIds.RemoveRange(mid + 1, ChildPageIds.Count - (mid + 1));
 
         provider.SaveNode(sibling);
+        provider.SaveNode(this);
         return ISplitResult.True(sibling, promotedKey);
     }
 

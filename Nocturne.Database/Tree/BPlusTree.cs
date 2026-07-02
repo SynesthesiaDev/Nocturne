@@ -6,7 +6,7 @@ using Nocturne.Database.API;
 
 namespace Nocturne.Database.Tree;
 
-public class BPlusTree(INodeProvider provider) : IDisposable
+public class BPlusTree : IDisposable
 {
     public const int ORDER = 10;
 
@@ -14,11 +14,33 @@ public class BPlusTree(INodeProvider provider) : IDisposable
 
     public long Count { get; private set; }
 
-    private ITreeNode root = new LeafTreeNode
+    private ITreeNode root;
+
+    private readonly INodeProvider provider;
+    private readonly NocturneDatabase databaseContext;
+
+    public BPlusTree(int rootPageId, INodeProvider provider, NocturneDatabase databaseContext)
     {
-        Keys = [],
-        Values = []
-    };
+        this.provider = provider;
+        this.databaseContext = databaseContext;
+
+        if (databaseContext.DiskManager.PageCount == 0)
+        {
+            root = new LeafTreeNode
+            {
+                PageId = rootPageId,
+                Keys = [],
+                Values = [],
+                NextPageId = 0
+            };
+
+            provider.SaveNode(root);
+        }
+        else
+        {
+            root = provider.GetNode(rootPageId);
+        }
+    }
 
     public IByteBuffer? Search<TKey>(IByteBuffer keyBuffer, NocturneKeySerializer<TKey> keySerializer)
     {
@@ -28,7 +50,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
         while (current is InternalTreeNode internalNode)
         {
             int i = findChildIndex(internalNode, keyBuffer, keySerializer);
-            current = internalNode.ChildPageIds[i];
+            current = provider.GetNode(internalNode.ChildPageIds[i]);
         }
 
         var (index, equals) = keySerializer.FindEquals(current.Keys, keyBuffer);
@@ -38,19 +60,29 @@ public class BPlusTree(INodeProvider provider) : IDisposable
     public void Insert<TKey>(IByteBuffer keyBuffer, IByteBuffer valueBuffer, NocturneKeySerializer<TKey> keySerializer)
     {
         ObjectDisposedException.ThrowIf(IsDisposed, "Tree is already disposed");
-        var result = root.Insert(keyBuffer, valueBuffer, keySerializer);
+        var result = root.Insert(keyBuffer, valueBuffer, keySerializer, provider);
 
         if (result is ISplitResult.Split splitResult)
         {
+            provider.SaveNode(root);
+            provider.SaveNode(splitResult.NewNode);
+
             var newRoot = new InternalTreeNode
             {
+                PageId = provider.AllocatePage(),
                 Keys = [splitResult.PromotedKey],
-                ChildPageIds = [root, splitResult.NewNode]
+                ChildPageIds = [root.PageId, splitResult.NewNode.PageId]
             };
 
             root = newRoot;
+            provider.SaveNode(root);
+            databaseContext.UpdateRootPageId(newRoot.PageId);
 
             if (result is not ISplitResult.Replacement) Count++;
+        }
+        else
+        {
+            provider.SaveNode(root);
         }
     }
 
@@ -61,7 +93,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
         while (current is InternalTreeNode internalNode)
         {
             int i = findChildIndex(internalNode, key, keySerializer);
-            current = internalNode.ChildPageIds[i];
+            current = provider.GetNode(internalNode.ChildPageIds[i]);
         }
 
         var leaf = (LeafTreeNode)current;
@@ -85,7 +117,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
 
         while (current is InternalTreeNode internalNode)
         {
-            current = internalNode.ChildPageIds[0];
+            current = provider.GetNode(internalNode.ChildPageIds[0]);
         }
 
         LeafTreeNode? leaf = current as LeafTreeNode;
@@ -97,7 +129,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
                 yield return value.RetainedDuplicate();
             }
 
-            leaf = leaf.Next;
+            leaf = leaf.GetNext(provider);
         }
     }
 
@@ -108,7 +140,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
 
         while (current is InternalTreeNode internalNode)
         {
-            current = internalNode.ChildPageIds[0];
+            current = provider.GetNode(internalNode.ChildPageIds[0]);
         }
 
         LeafTreeNode? leaf = current as LeafTreeNode;
@@ -120,7 +152,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
                 yield return value.RetainedDuplicate();
             }
 
-            leaf = leaf.Next;
+            leaf = leaf.GetNext(provider);
         }
     }
 
@@ -146,7 +178,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
                 yield return new KeyValuePair<IByteBuffer, IByteBuffer>(keyBuffer.RetainedDuplicate(), valueBuffer.RetainedDuplicate());
             }
 
-            leaf = leaf.Next;
+            leaf = leaf.GetNext(provider);
         }
     }
 
@@ -176,7 +208,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
 
             leaf.Keys.Clear();
             leaf.Values.Clear();
-            leaf = (LeafTreeNode)provider.GetNode(leaf.NextPageId);
+            leaf = leaf.GetNext(provider);
         }
 
         root = new LeafTreeNode
@@ -206,7 +238,7 @@ public class BPlusTree(INodeProvider provider) : IDisposable
 
             leaf.Keys.Clear();
             leaf.Values.Clear();
-            leaf = (LeafTreeNode)provider.GetNode(leaf.NextPageId);
+            leaf = leaf.GetNext(provider);
         }
     }
 }

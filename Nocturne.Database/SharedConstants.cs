@@ -7,5 +7,5 @@ public sealed class SharedConstants
 {
     public const int PAGE_VERSION = 2;
     public const int DATABASE_VERSION = 1;
-    public const int HEADER_VERSION = 2;
+    public const int HEADER_VERSION = 3;
 }

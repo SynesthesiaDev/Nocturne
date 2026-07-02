@@ -8,7 +8,7 @@ namespace Nocturne.Database.API;
 
 public class NocturneCollection<TKey, TValue>(NocturneKeySerializer<TKey> keySerializer, INocturneSerializer<TValue> valueSerializer, NocturneDatabase databaseContext) where TValue : class
 {
-    private BPlusTree binaryTree = new BPlusTree();
+    private BPlusTree binaryTree = new BPlusTree(databaseContext.Header.RootPageId, new DiskNodeProvider(databaseContext.DiskManager, databaseContext.BufferPool), databaseContext);
     public readonly NocturneKeySerializer<TKey> KeySerializer = keySerializer;
     public readonly INocturneSerializer<TValue> ValueSerializer = valueSerializer;
     public readonly NocturneDatabase DatabaseContext = databaseContext;
@@ -195,7 +195,7 @@ public class NocturneCollection<TKey, TValue>(NocturneKeySerializer<TKey> keySer
     {
         Transaction(_ =>
         {
-            var newTree = new BPlusTree();
+            var newTree = new BPlusTree(DatabaseContext.Header.RootPageId, new DiskNodeProvider(DatabaseContext.DiskManager, DatabaseContext.BufferPool), DatabaseContext);
 
             foreach (var kvp in binaryTree.IterateKeyAndValuePairs())
             {

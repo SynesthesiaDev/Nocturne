@@ -53,7 +53,8 @@ public class NocturneDatabase : IDisposable
             (
                 HeaderVersion: SharedConstants.HEADER_VERSION,
                 NocturneVersion: SharedConstants.DATABASE_VERSION,
-                SchemaVersion: SchemaVersion, Transactions: 0
+                SchemaVersion: SchemaVersion, Transactions: 0,
+                RootPageId: 1
             );
 
             initializeNewDatabaseFile();
@@ -197,6 +198,12 @@ public class NocturneDatabase : IDisposable
     public NocturneCollection<TKey, TValue> For<TKey, TValue>(NocturneKeySerializer<TKey> keySerializer, INocturneSerializer<TValue> valueSerializer) where TValue : class
     {
         return new NocturneCollection<TKey, TValue>(keySerializer, valueSerializer, this);
+    }
+
+    public void UpdateRootPageId(int newRootPageId)
+    {
+        Header = Header with { RootPageId = newRootPageId };
+        SaveHeader(Header);
     }
 
     public void Dispose()

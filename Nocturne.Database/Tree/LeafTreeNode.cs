@@ -45,6 +45,7 @@ public class LeafTreeNode : ITreeNode
             Values[index].Release();
             Values[index] = value.RetainedDuplicate();
 
+            provider.SaveNode(this);
             return ISplitResult.Update();
         }
 
@@ -52,11 +53,15 @@ public class LeafTreeNode : ITreeNode
         Values.Insert(index, value.RetainedDuplicate());
 
         if (Keys.Count <= max_keys)
+        {
+            provider.SaveNode(this);
             return ISplitResult.False();
+        }
 
         var mid = Keys.Count / 2;
         var sibling = new LeafTreeNode
         {
+            PageId = provider.AllocatePage(),
             Keys = [],
             Values = [],
         };
@@ -80,7 +85,11 @@ public class LeafTreeNode : ITreeNode
         sibling.NextPageId = NextPageId;
         NextPageId = sibling.PageId;
 
+        provider.SaveNode(sibling);
+        provider.SaveNode(this);
         return ISplitResult.True(sibling, sibling.Keys[0]);
     }
+
+    public LeafTreeNode? GetNext(INodeProvider provider) => (LeafTreeNode)provider.GetNode(NextPageId);
 
 }
