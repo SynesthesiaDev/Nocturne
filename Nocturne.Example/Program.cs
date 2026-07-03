@@ -26,18 +26,18 @@ public class Program
 
         NOCTURNE_DATABASE.Open();
 
-        // var stelle = new Person("Stelle", 23, true, "faggot");
-        //
-        // Person.DB_COLLECTION.Transaction(_ =>
+        // for (int i = 0; i < 100; i++)
         // {
-        //     Person.DB_COLLECTION.Insert(0, stelle);
-        // });
-
-        NOCTURNE_DATABASE.Compact();
-
-        var stelle =  Person.DB_COLLECTION.FindOrNull(0);
-        Log.Information("from db: {stelle}", stelle);
-        Utils.DumpDatabaseStructure(NOCTURNE_DATABASE);
+        //     var guid = Guid.NewGuid();
+        //     var keyBuffer = Unpooled.Buffer();
+        //     BinaryCodecs.GUID.Write(keyBuffer, guid);
+        //
+        //     var valueBuffer = Unpooled.Buffer();
+        //     valueBuffer.WriteString(guid.ToString(), Encoding.UTF8);
+        //     valueBuffer.WriteInt(Random.Shared.Next(0, 100));
+        //
+        //     NOCTURNE_DATABASE.FileManager.WriteChunk(new Chunk(ChunkType.Record, "test", keyBuffer, valueBuffer));
+        // }
     }
 }
 
@@ -51,5 +51,5 @@ public record Person(string Name, int Age, bool IsCool, string RandomFact)
         .Build((name, age, cool, fact) => new Person(name, age, cool, fact));
 
     public static readonly INocturneSerializer<Person> DATABASE_SERIALIZER = NocturneSerializer.FromCodec(CODEC);
-    public static readonly NocturneCollection<int, Person> DB_COLLECTION = Program.NOCTURNE_DATABASE.For(KeySerializers.INT, DATABASE_SERIALIZER);
+    // public static readonly NocturneCollection<int, Person> DB_COLLECTION = Program.NOCTURNE_DATABASE.For(KeySerializers.INT, DATABASE_SERIALIZER);
 }
