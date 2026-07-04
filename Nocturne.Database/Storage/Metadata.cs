@@ -2,21 +2,17 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using Codon.Binary;
+using Faster.Map.Core;
+using Nocturne.Database.Extensions;
 
 namespace Nocturne.Database.Storage;
 
-public record Metadata(int NocturneVersion, int SchemaVersion, long FileCreatedUtc, long LastCompactedUtc)
+public record Metadata(int NocturneVersion, long FileCreatedUtc, long LastCompactedUtc, BlitzMap<string, int> SchemaVersions)
 {
-    public const int MAGIC_SIGNATURE = 0x4E4F4354;
-    // public readonly IByteBuffer
-
-    // public static readonly int CRC32Hash =
-
     public static readonly IBinaryCodec<Metadata> CODEC = BinaryCodecs.For<Metadata>()
         .Field(BinaryCodecs.VAR_INT, m => m.NocturneVersion)
-        .Field(BinaryCodecs.VAR_INT, m => m.SchemaVersion)
         .Field(BinaryCodecs.LONG, m => m.FileCreatedUtc)
         .Field(BinaryCodecs.LONG, m => m.LastCompactedUtc)
-        .Build((version, schema, file, compact) => new Metadata(version, schema, file, compact));
-
+        .Field(BinaryCodecs.STRING.BlitzMapTo(BinaryCodecs.VAR_INT), m => m.SchemaVersions)
+        .Build((version, file, compact, update) => new Metadata(version, file, compact, update));
 }

@@ -10,6 +10,7 @@
       <PackageReference Include="Faster.Map" Version="8.1.1" />
       <PackageReference Include="Serilog" Version="4.4.0-dev-02437" />
       <PackageReference Include="SynesthesiaDev.Codon.BinaryCodec" Version="2026.623.0" />
+      <PackageReference Include="SynesthesiaUtils" Version="2026.614.0" />
     </ItemGroup>
 
 </Project>

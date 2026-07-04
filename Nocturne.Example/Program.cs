@@ -1,6 +1,8 @@
 ﻿using Codon.Binary;
+using DotNetty.Buffers;
 using Nocturne.Database;
 using Nocturne.Database.API;
+using Nocturne.Database.Migrations;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.SpectreConsole;
@@ -12,7 +14,6 @@ public class Program
     public static readonly NocturneDatabase NOCTURNE_DATABASE = new NocturneDatabase
     {
         FilePath = "./data/database.nocturne",
-        SchemaVersion = 0
     };
 
     public static void Main(string[] args)
@@ -26,30 +27,48 @@ public class Program
 
         NOCTURNE_DATABASE.Open();
 
-        // for (int i = 0; i < 100; i++)
-        // {
-        //     var guid = Guid.NewGuid();
-        //     var keyBuffer = Unpooled.Buffer();
-        //     BinaryCodecs.GUID.Write(keyBuffer, guid);
-        //
-        //     var valueBuffer = Unpooled.Buffer();
-        //     valueBuffer.WriteString(guid.ToString(), Encoding.UTF8);
-        //     valueBuffer.WriteInt(Random.Shared.Next(0, 100));
-        //
-        //     NOCTURNE_DATABASE.FileManager.WriteChunk(new Chunk(ChunkType.Record, "test", keyBuffer, valueBuffer));
-        // }
+        // previous run
+        // var person = new Person("Stelle", 23, true, "cute");
+        // Person.DB_COLLECTION.Insert("jackiepurplish", person);
+
+        var readPerson = Person.DB_COLLECTION.Find("jackiepurplish");
+        Log.Information("jackie - {person}", readPerson);
     }
 }
 
-public record Person(string Name, int Age, bool IsCool, string RandomFact)
+public record Person(string Name, int Age, bool IsCool)
 {
     public static readonly IBinaryCodec<Person> CODEC = BinaryCodecs.For<Person>()
         .Field(BinaryCodecs.STRING, p => p.Name)
         .Field(BinaryCodecs.INT, p => p.Age)
         .Field(BinaryCodecs.BOOLEAN, p => p.IsCool)
-        .Field(BinaryCodecs.STRING, p => p.RandomFact)
-        .Build((name, age, cool, fact) => new Person(name, age, cool, fact));
+        .Build((name, age, cool) => new Person(name, age, cool));
 
     public static readonly INocturneSerializer<Person> DATABASE_SERIALIZER = NocturneSerializer.FromCodec(CODEC);
-    // public static readonly NocturneCollection<int, Person> DB_COLLECTION = Program.NOCTURNE_DATABASE.For(KeySerializers.INT, DATABASE_SERIALIZER);
+
+    // Schema version changes:
+    // 0 -> 1 - removed "FunFact" string field
+
+    public static readonly NocturneCollection<string, Person> DB_COLLECTION = Program.NOCTURNE_DATABASE.For(
+        "people",
+        1,
+        KeySerializers.STRING,
+        DATABASE_SERIALIZER,
+        IMigrationStrategy.Migrations()
+            .Add(0, buffer =>
+            {
+                var name = BinaryCodecs.STRING.Read(buffer);
+                var age = BinaryCodecs.INT.Read(buffer);
+                var isCool = BinaryCodecs.BOOLEAN.Read(buffer);
+                var _ = BinaryCodecs.STRING.Read(buffer);
+
+                var newBuffer = Unpooled.Buffer();
+                BinaryCodecs.STRING.Write(newBuffer, name);
+                BinaryCodecs.INT.Write(newBuffer, age);
+                BinaryCodecs.BOOLEAN.Write(newBuffer, isCool);
+
+                return newBuffer;
+            })
+            .Build()
+        );
 }

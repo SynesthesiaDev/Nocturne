@@ -9,13 +9,15 @@ using Serilog;
 
 namespace Nocturne.Database.Cache;
 
-public class MemoryCache
+public class MemoryCache : IDisposable
 {
-    private readonly BlitzMap<string, BlitzMap<KeyBytes, long>> collections;
+    private readonly BlitzMap<string, BlitzMap<KeyBytes, Entry>> collections;
 
     public static readonly IBinaryCodec<MemoryCache> CODEC = BinaryCodecs.For<MemoryCache>()
-        .Field(BinaryCodecs.STRING.BlitzMapTo(KeyBytes.CODEC.BlitzMapTo(BinaryCodecs.LONG)), m => m.collections)
+        .Field(BinaryCodecs.STRING.BlitzMapTo(KeyBytes.CODEC.BlitzMapTo(Entry.CODEC)), m => m.collections)
         .Build(collections => new MemoryCache(collections));
+
+    public long DeadBytes { get; private set; } = 0;
 
     public int Size
     {
@@ -27,15 +29,16 @@ public class MemoryCache
             return total;
         }
     }
-    public IEnumerable<KeyValuePair<KeyBytes, long>> AllEntries()
+
+    public IEnumerable<KeyValuePair<KeyBytes, Entry>> AllEntries()
     {
-        var result = new List<KeyValuePair<KeyBytes, long>>(Size);
+        var result = new List<KeyValuePair<KeyBytes, Entry>>(Size);
 
         foreach (var outerEntry in collections)
         {
             foreach (var innerEntry in outerEntry.Value)
             {
-                result.Add(new KeyValuePair<KeyBytes, long>(innerEntry.Key, innerEntry.Value));
+                result.Add(new KeyValuePair<KeyBytes, Entry>(innerEntry.Key, innerEntry.Value));
             }
         }
 
@@ -44,15 +47,15 @@ public class MemoryCache
 
     public MemoryCache()
     {
-        collections = new BlitzMap<string, BlitzMap<KeyBytes, long>>();
+        collections = new BlitzMap<string, BlitzMap<KeyBytes, Entry>>();
     }
 
-    private MemoryCache(BlitzMap<string, BlitzMap<KeyBytes, long>> collections)
+    private MemoryCache(BlitzMap<string, BlitzMap<KeyBytes, Entry>> collections)
     {
         this.collections = collections;
     }
 
-    public long? Get(string nestedKey, IByteBuffer key)
+    public Entry? Get(string nestedKey, IByteBuffer key)
     {
         if (!collections.Contains(nestedKey)) return null;
         collections.Get(nestedKey, out var map);
@@ -60,18 +63,35 @@ public class MemoryCache
         return map.Get(KeyBytes.FromBuffer(key), out var entry) ? entry : null;
     }
 
-    public void Insert(string collectionKey, IByteBuffer key, long valuePosition)
+    public IDictionary<KeyBytes, Entry> GetAllForCollection(string collectionKey)
+    {
+        var result = new Dictionary<KeyBytes, Entry>();
+        if (!collections.Get(collectionKey, out var map)) return result;
+
+        foreach (var innerEntry in map)
+        {
+            result[innerEntry.Key] = innerEntry.Value;
+        }
+
+        return result;
+    }
+
+
+    public void Insert(string collectionKey, IByteBuffer key, Entry entry)
     {
         if (!collections.Get(collectionKey, out var inner))
         {
-            inner = new BlitzMap<KeyBytes, long>();
+            inner = new BlitzMap<KeyBytes, Entry>();
             collections.Insert(collectionKey, inner);
-            Log.Verbose("(MemoryCache) inner map for collection key {key} does not exist, creating one", collectionKey);
         }
 
+
         var keyBytes = KeyBytes.FromBuffer(key);
-        inner.InsertOrUpdate(keyBytes, valuePosition);
-        Log.Verbose("(MemoryCache) Updated memory cache for collection {key} with key hash {keyhash} bytes and stream position of {pos}", collectionKey, keyBytes.Hash, valuePosition);
+        if (inner.Get(keyBytes, out var old))
+            DeadBytes += old.Length;
+
+        inner.InsertOrUpdate(keyBytes, entry);
+        Log.Verbose("Updated memory cache for collection {key} (hash: {hash} position: {pos}) [{dead} dead bytes]", collectionKey, keyBytes.Hash, entry.Position, DeadBytes);
     }
 
     public void Remove(string collectionKey, IByteBuffer key)
@@ -79,8 +99,33 @@ public class MemoryCache
         if (collections.Get(collectionKey, out var inner))
         {
             var keyBytes = KeyBytes.FromBuffer(key);
+            if (inner.Get(keyBytes, out var old))
+                DeadBytes += old.Length;
+
             inner.Remove(keyBytes);
-            Log.Verbose("(MemoryCache) Removed key hash {hash} from memory cache for collection {key}", keyBytes.Hash, collectionKey);
+            Log.Verbose("Removed key hash {hash} from memory cache for collection {key}", keyBytes.Hash, collectionKey);
         }
+    }
+
+    public readonly struct Entry(long position, int length)
+    {
+        public readonly long Position = position;
+        public readonly int Length = length;
+
+        public static readonly IBinaryCodec<Entry> CODEC = BinaryCodecs.For<Entry>()
+            .Field(BinaryCodecs.LONG, e => e.Position)
+            .Field(BinaryCodecs.VAR_INT, e => e.Length)
+            .Build((pos, len) => new Entry(pos, len));
+    }
+
+    public void Dispose()
+    {
+        Clear();
+    }
+
+    public void Clear()
+    {
+        collections.Clear();
+        DeadBytes = 0;
     }
 }

@@ -19,6 +19,14 @@ public readonly struct KeyBytes : IEquatable<KeyBytes>
         .Field(BinaryCodecs.INT, k => k.Hash)
         .Build((bytes, hash) => new KeyBytes(bytes, hash));
 
+    public IByteBuffer ToByteBuffer()
+    {
+        var buffer = Unpooled.Buffer();
+        buffer.WriteBytes(Bytes);
+
+        return buffer;
+    }
+
     private KeyBytes(byte[] bytes, int hash)
     {
         Bytes = bytes;

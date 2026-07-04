@@ -39,6 +39,12 @@ public class Chunk
         });
     }
 
+    public void Release()
+    {
+        Value.Release();
+        Key.Release();
+    }
+
     // (obviously byte buffers/arraays and strings are length prefixed)
 
     // Example: Meta type
