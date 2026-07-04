@@ -70,8 +70,12 @@ public class NocturneDatabase : IDisposable
         foreach (var check in pendingMigrationChecks) check.Invoke();
         pendingMigrationChecks.Clear();
 
+        if (CompactOnLaunch && FileManager.NeedsCompaction) Compact();
+
         IsOpen = true;
     }
+
+    public void Compact() => FileManager.Compact();
 
     public NocturneCollection<TKey, TValue> For<TKey, TValue>(string collectionKey, int schemaVersion, NocturneKeySerializer<TKey> keySerializer, INocturneSerializer<TValue> valueSerializer, IMigrationStrategy? migrationStrategy = null) where TValue : class
     {
