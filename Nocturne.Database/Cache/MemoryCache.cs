@@ -5,7 +5,6 @@ using Codon.Binary;
 using DotNetty.Buffers;
 using Faster.Map.Core;
 using Nocturne.Database.Extensions;
-using Serilog;
 
 namespace Nocturne.Database.Cache;
 
@@ -17,7 +16,7 @@ public class MemoryCache : IDisposable
         .Field(BinaryCodecs.STRING.BlitzMapTo(KeyBytes.CODEC.BlitzMapTo(Entry.CODEC)), m => m.collections)
         .Build(collections => new MemoryCache(collections));
 
-    public long DeadBytes { get; private set; } = 0;
+    public long DeadBytes { get; private set; }
 
     public int Size
     {
@@ -48,6 +47,7 @@ public class MemoryCache : IDisposable
     public MemoryCache()
     {
         collections = new BlitzMap<string, BlitzMap<KeyBytes, Entry>>();
+
     }
 
     private MemoryCache(BlitzMap<string, BlitzMap<KeyBytes, Entry>> collections)
@@ -62,6 +62,9 @@ public class MemoryCache : IDisposable
 
         return map.Get(KeyBytes.FromBuffer(key), out var entry) ? entry : null;
     }
+
+    public int CountForCollection(string collectionKey) =>
+        collections.Get(collectionKey, out var map) ? map.Count : 0;
 
     public IDictionary<KeyBytes, Entry> GetAllForCollection(string collectionKey)
     {
@@ -91,7 +94,7 @@ public class MemoryCache : IDisposable
             DeadBytes += old.Length;
 
         inner.InsertOrUpdate(keyBytes, entry);
-        Log.Verbose("Updated memory cache for collection {key} (hash: {hash} position: {pos}) [{dead} dead bytes]", collectionKey, keyBytes.Hash, entry.Position, DeadBytes);
+
     }
 
     public void Remove(string collectionKey, IByteBuffer key)
@@ -103,7 +106,6 @@ public class MemoryCache : IDisposable
                 DeadBytes += old.Length;
 
             inner.Remove(keyBytes);
-            Log.Verbose("Removed key hash {hash} from memory cache for collection {key}", keyBytes.Hash, collectionKey);
         }
     }
 
@@ -117,6 +119,7 @@ public class MemoryCache : IDisposable
             .Field(BinaryCodecs.VAR_INT, e => e.Length)
             .Build((pos, len) => new Entry(pos, len));
     }
+
 
     public void Dispose()
     {

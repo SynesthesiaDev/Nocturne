@@ -15,6 +15,7 @@ public class NocturneDatabase : IDisposable
 {
     public required string FilePath { get; init; }
     public bool CompactOnLaunch { get; init; } = true;
+    public bool AutomaticallyCompact { get; init; } = true;
 
     public string DirectoryPath => Path.GetDirectoryName(FilePath) ?? throw new InvalidOperationException("Invalid file path specified (cannot get directory name)");
     public string TempFilePath => Path.Combine(DirectoryPath, "compact.tmp") ?? throw new InvalidOperationException("Invalid file path specified (cannot get directory name)");
@@ -30,6 +31,8 @@ public class NocturneDatabase : IDisposable
     private readonly List<Action> pendingMigrationChecks = [];
 
     public bool IsOpen { get; private set; }
+
+    public int Compactions => FileManager.Compactions;
 
     public void Open()
     {
@@ -59,7 +62,6 @@ public class NocturneDatabase : IDisposable
                 LastCompactedUtc: SharedConstants.DEFAULT_COMPACT_TIMESTAMP,
                 SchemaVersions: new BlitzMap<string, int>()
             );
-            Log.Verbose("Putting in new map");
             MetaCollection.Insert(metadata);
         }
         else

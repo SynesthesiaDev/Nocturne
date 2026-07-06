@@ -2,6 +2,7 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using Nocturne.Database;
+using Serilog;
 
 namespace Nocturne.Tests;
 
@@ -11,14 +12,25 @@ public abstract class NocturneTestBase
     private string dbPath = null!;
 
     protected virtual NocturneDatabase CreateDatabase(string filePath) =>
-        new() { FilePath = filePath };
+        new()
+        {
+            FilePath = filePath,
+            AutomaticallyCompact = false,
+            CompactOnLaunch = false
+        };
 
     [SetUp]
     public void BaseSetup()
     {
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.TextWriter(TestContext.Out)
+            .CreateLogger();
+
         dbPath = Path.Combine(Path.GetTempPath(), $"nocturne-test-{Guid.NewGuid()}.db");
         Nocturne = CreateDatabase(dbPath);
         Nocturne.Open();
+
     }
 
     [TearDown]

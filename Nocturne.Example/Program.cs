@@ -14,6 +14,7 @@ public class Program
     public static readonly NocturneDatabase NOCTURNE_DATABASE = new NocturneDatabase
     {
         FilePath = "./data/database.nocturne",
+        AutomaticallyCompact = false,
     };
 
     public static void Main(string[] args)
@@ -27,12 +28,26 @@ public class Program
 
         NOCTURNE_DATABASE.Open();
 
-        // previous run
-        // var person = new Person("Stelle", 23, true, "cute");
-        // Person.DB_COLLECTION.Insert("jackiepurplish", person);
+        var newPerson = new Person("John Person", 21, false);
+        Person.DB_COLLECTION.Insert("john", newPerson);
 
-        var readPerson = Person.DB_COLLECTION.Find("jackiepurplish");
-        Log.Information("jackie - {person}", readPerson);
+        var john = Person.DB_COLLECTION.Find("john");
+
+        Person.DB_COLLECTION.Delete("john");
+
+        //fuck it, who needs prod anyway
+        Person.DB_COLLECTION.Nuke();
+
+        // NOCTURNE_DATABASE.Compact();
+
+        // for (int i = 0; i < 100_000; i++)
+        // {
+        //     var person = new Person($"random_person_{i}", i, true);
+        //     Person.DB_COLLECTION.Insert(i.ToString(), person);
+        // }
+
+        Console.WriteLine("Press Enter to exit...");
+        Console.ReadLine();
     }
 }
 
@@ -46,29 +61,14 @@ public record Person(string Name, int Age, bool IsCool)
 
     public static readonly INocturneSerializer<Person> DATABASE_SERIALIZER = NocturneSerializer.FromCodec(CODEC);
 
+
     // Schema version changes:
     // 0 -> 1 - removed "FunFact" string field
 
     public static readonly NocturneCollection<string, Person> DB_COLLECTION = Program.NOCTURNE_DATABASE.For(
-        "people",
-        1,
-        KeySerializers.STRING,
-        DATABASE_SERIALIZER,
-        IMigrationStrategy.Migrations()
-            .Add(0, buffer =>
-            {
-                var name = BinaryCodecs.STRING.Read(buffer);
-                var age = BinaryCodecs.INT.Read(buffer);
-                var isCool = BinaryCodecs.BOOLEAN.Read(buffer);
-                var _ = BinaryCodecs.STRING.Read(buffer);
-
-                var newBuffer = Unpooled.Buffer();
-                BinaryCodecs.STRING.Write(newBuffer, name);
-                BinaryCodecs.INT.Write(newBuffer, age);
-                BinaryCodecs.BOOLEAN.Write(newBuffer, isCool);
-
-                return newBuffer;
-            })
-            .Build()
-        );
+        collectionKey: "people",
+        schemaVersion: 1,
+        keySerializer: KeySerializers.STRING,
+        valueSerializer: DATABASE_SERIALIZER
+    );
 }

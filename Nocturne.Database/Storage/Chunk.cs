@@ -3,18 +3,18 @@
 
 using Codon.Binary;
 using DotNetty.Buffers;
+using Nocturne.Database.Utils;
 
 namespace Nocturne.Database.Storage;
 
-public class Chunk
+public class Chunk(ChunkType type, string collectionKey, IByteBuffer key, IByteBuffer value)
 {
     public const string META_CHUNK_KEY = "__meta";
 
-    public readonly ChunkType ChunkType;
-    public readonly string CollectionKey;
-    public readonly IByteBuffer Key;
-    public readonly IByteBuffer Value;
-    public readonly Lazy<WrappedChunk> Wrapped;
+    public readonly ChunkType ChunkType = type;
+    public readonly string CollectionKey = collectionKey;
+    public readonly IByteBuffer Key = key;
+    public readonly IByteBuffer Value = value;
 
     public static readonly IBinaryCodec<Chunk> CODEC = BinaryCodecs.For<Chunk>()
         .Field(BinaryCodecs.Enum<ChunkType>(), c => c.ChunkType)
@@ -23,20 +23,12 @@ public class Chunk
         .Field(BinaryCodecs.BYTE_BUFFER, c => c.Value)
         .Build((type, prefix, key, value) => new Chunk(type, prefix, key, value));
 
-    public Chunk(ChunkType type, string collectionKey, IByteBuffer key, IByteBuffer value)
+    public WrappedChunk ToWrapped()
     {
-        ChunkType = type;
-        CollectionKey = collectionKey;
-        Key = key;
-        Value = value;
-
-        Wrapped = new Lazy<WrappedChunk>(() =>
-        {
-            var buffer = Unpooled.Buffer();
-            CODEC.Write(buffer, this);
-            var hash = Hasher.Crc32(buffer);
-            return new WrappedChunk(hash, buffer);
-        });
+        var buffer = PooledByteBufferAllocator.Default.Buffer();
+        CODEC.Write(buffer, this);
+        var hash = Hasher.Crc32(buffer);
+        return new WrappedChunk(hash, buffer);
     }
 
     public void Release()

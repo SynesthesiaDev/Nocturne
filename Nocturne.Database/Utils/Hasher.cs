@@ -3,7 +3,7 @@
 
 using DotNetty.Buffers;
 
-namespace Nocturne.Database.Storage;
+namespace Nocturne.Database.Utils;
 
 public sealed class Hasher
 {

@@ -21,7 +21,7 @@ public readonly struct KeyBytes : IEquatable<KeyBytes>
 
     public IByteBuffer ToByteBuffer()
     {
-        var buffer = Unpooled.Buffer();
+        var buffer = PooledByteBufferAllocator.Default.Buffer();
         buffer.WriteBytes(Bytes);
 
         return buffer;
@@ -35,7 +35,7 @@ public readonly struct KeyBytes : IEquatable<KeyBytes>
 
     private KeyBytes(byte[] bytes)
     {
-        this.Bytes = bytes;
+        Bytes = bytes;
         Hash = unchecked((int)XxHash32.HashToUInt32(bytes));
     }
 

@@ -4,16 +4,16 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Nocturne.Database\Nocturne.Database.csproj"/>
+    <PackageReference Include="BenchmarkDotNet" Version="0.16.0-preview.1"/>
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Serilog.Sinks.SpectreConsole" Version="0.3.3"/>
+    <ProjectReference Include="..\Nocturne.Database\Nocturne.Database.csproj"/>
   </ItemGroup>
 
 </Project>

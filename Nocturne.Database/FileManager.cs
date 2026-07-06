@@ -17,13 +17,16 @@ public class FileManager(NocturneDatabase database) : IDisposable
     public readonly NocturneDatabase Database = database;
     private FileStream databaseStream = new(database.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, 0, FileOptions.RandomAccess);
 
-    public bool NeedsCompaction => needsCompaction();
+    public bool NeedsCompaction => Database.MemoryCache.DeadBytes >= Database.MemoryCache.Size;
+
+    public int Compactions { get; private set; }
 
     public void PopulateCache()
     {
+        var profiler = Timings.RentAndPush();
         databaseStream.Seek(0, SeekOrigin.Begin);
         var memoryCache = Database.MemoryCache;
-        var buffer = Unpooled.Buffer();
+        var buffer = PooledByteBufferAllocator.Default.Buffer();
 
         try
         {
@@ -67,7 +70,8 @@ public class FileManager(NocturneDatabase database) : IDisposable
             buffer.Release();
         }
 
-        Log.Information("Populated {entries} entries into memory cache", memoryCache.Size);
+        Log.Information("Populated {entries} entries into memory cache in {time}ms", memoryCache.Size, profiler.PopAndReturn());
+        CheckForAutoCompact();
     }
 
     public List<Chunk> ReadChunks(IEnumerable<long> positions, bool throwIfNull = false)
@@ -114,8 +118,8 @@ public class FileManager(NocturneDatabase database) : IDisposable
 
     public void WriteChunk(Chunk chunk, Stream stream, bool updateCache = true)
     {
-        var wrapped = chunk.Wrapped.Value;
-        var buffer = Unpooled.Buffer();
+        var wrapped = chunk.ToWrapped();
+        var buffer = PooledByteBufferAllocator.Default.Buffer();
         try
         {
             WrappedChunk.CODEC.Write(buffer, wrapped);
@@ -135,6 +139,7 @@ public class FileManager(NocturneDatabase database) : IDisposable
         {
             buffer.Release();
         }
+        CheckForAutoCompact();
     }
 
     public void Compact()
@@ -171,6 +176,7 @@ public class FileManager(NocturneDatabase database) : IDisposable
         databaseStream = new FileStream(Database.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, 0, FileOptions.RandomAccess);
         Database.MemoryCache.Clear();
         PopulateCache();
+        Compactions++;
 
         var ms = profiler.PopAndReturn();
         Log.Information("Nocturne Database compacted in {time}ms from {before} -> {now} bytes", ms, sizeBefore, databaseStream.Length);
@@ -190,6 +196,8 @@ public class FileManager(NocturneDatabase database) : IDisposable
                 keyBuffer.Release();
             }
         }
+
+        CheckForAutoCompact();
     }
 
     public void MigrateCollection(string collectionKey, Func<IByteBuffer, IByteBuffer> transform)
@@ -205,12 +213,14 @@ public class FileManager(NocturneDatabase database) : IDisposable
         }
     }
 
-    private bool needsCompaction()
-    {
-        var totalBytes = databaseStream.Length;
 
-        var deadRatio = (double)Database.MemoryCache.DeadBytes / totalBytes;
-        return deadRatio > 0.5;
+    public void CheckForAutoCompact()
+    {
+        if (!NeedsCompaction || !Database.AutomaticallyCompact) return;
+
+        Log.Information("Automatically compacting due to size of dead bytes being more than actual size");
+        Compact();
+
     }
 
     public void Dispose()

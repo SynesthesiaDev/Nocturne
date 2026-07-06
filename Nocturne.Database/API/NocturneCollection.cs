@@ -117,10 +117,12 @@ public class NocturneCollection<TKey, TValue>(
         }
     }
 
+    public int Count => DatabaseContext.MemoryCache.CountForCollection(CollectionKey);
+
     public void Insert(TKey key, TValue value)
     {
-        var keyBuffer = Unpooled.Buffer();
-        var valueBuffer = Unpooled.Buffer();
+        var keyBuffer = PooledByteBufferAllocator.Default.Buffer();
+        var valueBuffer = PooledByteBufferAllocator.Default.Buffer();
         try
         {
             KeySerializer.Write(keyBuffer, key);
@@ -137,11 +139,11 @@ public class NocturneCollection<TKey, TValue>(
 
     public void Delete(TKey key)
     {
-        var keyBuffer = Unpooled.Buffer();
+        var keyBuffer = PooledByteBufferAllocator.Default.Buffer();
         try
         {
             KeySerializer.Write(keyBuffer, key);
-            var chunk = new Chunk(ChunkType.Delete, CollectionKey, keyBuffer, Unpooled.Buffer());
+            var chunk = new Chunk(ChunkType.Delete, CollectionKey, keyBuffer, PooledByteBufferAllocator.Default.Buffer());
             FileManager.WriteChunk(chunk);
         }
         finally
@@ -152,7 +154,7 @@ public class NocturneCollection<TKey, TValue>(
 
     public TValue? FindOrNull(TKey key)
     {
-        var keyBuffer = Unpooled.Buffer();
+        var keyBuffer = PooledByteBufferAllocator.Default.Buffer();
         try
         {
             KeySerializer.Write(keyBuffer, key);
@@ -197,7 +199,7 @@ public class NocturneCollection<TKey, TValue>(
 
     public bool ContainsKey(TKey key)
     {
-        var keyBuffer = Unpooled.Buffer();
+        var keyBuffer = PooledByteBufferAllocator.Default.Buffer();
         try
         {
             KeySerializer.Write(keyBuffer, key);

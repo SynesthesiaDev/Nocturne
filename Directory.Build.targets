@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <Authors>SynesthesiaDev</Authors>
+    <RepositoryUrl>https://github.com/SynesthesiaDev/Nocturne</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md"
+          Pack="true"
+          PackagePath="\"
+          Link="README.md" />
+  </ItemGroup>
+</Project>

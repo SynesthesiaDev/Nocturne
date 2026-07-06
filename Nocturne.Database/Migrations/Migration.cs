@@ -14,7 +14,7 @@ public interface IMigrationStrategy
 
     record Migration(IDictionary<int, Func<IByteBuffer, IByteBuffer>> Steps) : IMigrationStrategy
     {
-        public class Builder()
+        public class Builder
         {
             private readonly Dictionary<int, Func<IByteBuffer, IByteBuffer>> steps = [];
 
