@@ -211,6 +211,18 @@ public class NocturneCollection<TKey, TValue>(
         }
     }
 
+    public TValue? FindFirstOrNull(Func<TValue, bool> predicate) => FindAllWhere(predicate).FirstOrDefault();
+
+    public TValue FindFirst(Func<TValue, bool> predicate) => FindAllWhere(predicate).FirstOrDefault() ?? throw new KeyNotFoundException();
+
+    public bool TryGetValue(TKey key, out TValue? value)
+    {
+        value = FindOrNull(key);
+        return value != null;
+    }
+
+    public bool Any(Func<TValue, bool> predicate) => FindFirstOrNull(predicate) != null;
+
     public IEnumerable<TValue> FindAllWhere(Func<TValue, bool> predicate)
     {
         var positions = MemoryCache.GetAllForCollection(CollectionKey).Values;
