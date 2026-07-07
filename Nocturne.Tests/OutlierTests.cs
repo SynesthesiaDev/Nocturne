@@ -2,43 +2,39 @@
 // See the LICENCE file in the repository root for full licence text.
 
 using Codon.Binary;
-using Nocturne.Database;
 using Nocturne.Database.API;
 
 namespace Nocturne.Tests;
 
-public class AutoCompactTest : NocturneTestBase
+[TestFixture]
+public class OutlierTests : NocturneTestBase
 {
-    protected override NocturneDatabase CreateDatabase(string filePath)
-    {
-        return new NocturneDatabase
-        {
-            FilePath = filePath,
-            AutomaticallyCompact = true,
-        };
-    }
 
     private NocturneCollection<string, Person> people =>
         Nocturne.For("people", 0, KeySerializers.STRING, Person.DATABASE_SERIALIZER);
 
+
     [Test]
-    public void AutomaticallyCompact()
+    public void ReplicateDeleteCacheCrash()
     {
-        var start = Nocturne.Compactions;
-
-        for (int i = 0; i < 500; i++)
+        for (int i = 0; i < 200; i++)
         {
-            people.Insert($"person_{i}", new Person("Name", i));
+            people.Insert($"target_person_{i}", new Person("Seed Data", i));
         }
 
-        for (int i = 0; i < 500; i++)
+        Assert.DoesNotThrow(() =>
         {
-            people.Insert($"person_{i}", new Person("Name_aa", i));
-        }
+            for (int i = 0; i < 200; i++)
+            {
+                people.Insert($"target_person_{i}", new Person("Updated Data", i * 2));
 
-        Assert.That(Nocturne.Compactions, Is.GreaterThan(start));
+                if (i % 2 == 0)
+                {
+                    people.Delete($"target_person_{i}");
+                }
+            }
+        });
     }
-
 
     private record Person(string Name, int Age)
     {

@@ -17,78 +17,98 @@ public class FileManager(NocturneDatabase database) : IDisposable
     public readonly NocturneDatabase Database = database;
     private FileStream databaseStream = new(database.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, 0, FileOptions.RandomAccess);
 
-    public bool NeedsCompaction => Database.MemoryCache.DeadBytes >= Database.MemoryCache.Size;
+    public bool NeedsCompaction
+    {
+        get
+        {
+            double fragmentationRatio = (double)Database.MemoryCache.DeadBytes / Database.MemoryCache.Size;
+            return fragmentationRatio >= 0.75;
+        }
+    }
 
     public int Compactions { get; private set; }
 
+    private int compactingFlag;
+    private readonly ReaderWriterLockSlim rwLock = new(LockRecursionPolicy.SupportsRecursion);
+
     public void PopulateCache()
+    {
+        rwLock.EnterWriteLock();
+        try
+        {
+            populateCacheFromFile();
+        }
+        finally
+        {
+            rwLock.ExitWriteLock();
+        }
+
+        CheckForAutoCompact();
+    }
+
+    private void populateCacheFromFile()
     {
         var profiler = Timings.RentAndPush();
         databaseStream.Seek(0, SeekOrigin.Begin);
         var memoryCache = Database.MemoryCache;
-        var buffer = PooledByteBufferAllocator.Default.Buffer();
 
-        try
+        while (databaseStream.Position < databaseStream.Length)
         {
-            while (databaseStream.Position < databaseStream.Length)
+            var chunkStart = databaseStream.Position;
+
+            Chunk chunk;
+            try
             {
-                var chunkStart = databaseStream.Position;
+                var readChunk = WrappedChunk.ReadChunkFromStream(databaseStream);
 
-                Chunk chunk;
-                try
+                if (readChunk == null)
                 {
-                    var readChunk = WrappedChunk.ReadChunkFromStream(databaseStream);
-
-                    if (readChunk == null)
-                    {
-                        Log.Error("read chunk is null");
-                        databaseStream.SetLength(chunkStart);
-                        break;
-                    }
-
-                    chunk = readChunk;
-                }
-                catch (Exception e)
-                {
-                    Log.Error(e, "Failed to read chunk form database file");
+                    Log.Error("read chunk is null");
                     databaseStream.SetLength(chunkStart);
                     break;
                 }
 
-                if (chunk.ChunkType == ChunkType.Delete)
-                {
-                    memoryCache.Remove(chunk.CollectionKey, chunk.Key);
-                }
-                else
-                {
-                    memoryCache.Insert(chunk.CollectionKey, chunk.Key, new MemoryCache.Entry(chunkStart, chunk.Value.ReadableBytes));
-                }
+                chunk = readChunk;
             }
-        }
-        finally
-        {
-            buffer.Release();
+            catch (Exception e)
+            {
+                Log.Error(e, "Failed to read chunk form database file");
+                databaseStream.SetLength(chunkStart);
+                break;
+            }
+
+            if (chunk.ChunkType == ChunkType.Delete)
+                memoryCache.Remove(chunk.CollectionKey, chunk.Key);
+            else
+                memoryCache.Insert(chunk.CollectionKey, chunk.Key, new MemoryCache.Entry(chunkStart, chunk.Value.ReadableBytes));
         }
 
         Log.Information("Populated {entries} entries into memory cache in {time}ms", memoryCache.Size, profiler.PopAndReturn());
-        CheckForAutoCompact();
     }
 
     public List<Chunk> ReadChunks(IEnumerable<long> positions, bool throwIfNull = false)
     {
         var list = new List<Chunk>();
-        foreach (var position in positions)
+        rwLock.EnterWriteLock();
+        try
         {
-            var chunk = ReadChunk(position);
-            if (chunk == null)
+            foreach (var position in positions)
             {
-                if (throwIfNull)
-                    throw new CorruptedChunkException($"Chunk at position {position} was read as null");
+                var chunk = ReadChunk(position);
+                if (chunk == null)
+                {
+                    if (throwIfNull)
+                        throw new CorruptedChunkException($"Chunk at position {position} was read as null");
 
-                continue;
+                    continue;
+                }
+
+                list.Add(chunk);
             }
-
-            list.Add(chunk);
+        }
+        finally
+        {
+            rwLock.ExitWriteLock();
         }
 
         return list;
@@ -96,6 +116,7 @@ public class FileManager(NocturneDatabase database) : IDisposable
 
     public Chunk? ReadChunk(long position)
     {
+        rwLock.EnterWriteLock();
         try
         {
             databaseStream.Seek(position, SeekOrigin.Begin);
@@ -112,9 +133,118 @@ public class FileManager(NocturneDatabase database) : IDisposable
             Log.Error(e, "Failed to read chunk form database file");
             return null;
         }
+        finally
+        {
+            rwLock.ExitWriteLock();
+        }
     }
 
-    public void WriteChunk(Chunk chunk, bool updateCache = true) => WriteChunk(chunk, databaseStream, updateCache);
+    public void WriteChunk(Chunk chunk, bool updateCache = true)
+    {
+        var wrapped = chunk.ToWrapped();
+        var buffer = PooledByteBufferAllocator.Default.Buffer();
+        try
+        {
+            WrappedChunk.CODEC.Write(buffer, wrapped);
+
+            rwLock.EnterWriteLock();
+            try
+            {
+                var stream = databaseStream;
+
+                var position = stream.Seek(0, SeekOrigin.End);
+                stream.Write(buffer.ToByteArraySafe());
+                stream.Flush();
+
+                if (!updateCache) return;
+
+                if (chunk.ChunkType == ChunkType.Delete)
+                    Database.MemoryCache.Remove(chunk.CollectionKey, chunk.Key);
+                else
+                    Database.MemoryCache.Insert(chunk.CollectionKey, chunk.Key, new MemoryCache.Entry(position, chunk.Value.ReadableBytes));
+            }
+            finally
+            {
+                rwLock.ExitWriteLock();
+            }
+        }
+        finally
+        {
+            buffer.Release();
+        }
+
+        CheckForAutoCompact();
+    }
+
+    public void Compact()
+    {
+        if (Interlocked.Exchange(ref compactingFlag, 1) == 1)
+        {
+            Log.Warning("Compact already in progress, skipping");
+            return;
+        }
+
+        try
+        {
+            var profiler = Timings.RentAndPush();
+
+            if (File.Exists(Database.TempFilePath))
+            {
+                Log.Warning("Temporary compact file was found, your last compact may have not finished");
+                File.Delete(Database.TempFilePath);
+            }
+
+            var sizeBefore = databaseStream.Length;
+
+            try
+            {
+                rwLock.EnterWriteLock();
+                List<Chunk> latest;
+                try
+                {
+                    var positions = Database.MemoryCache.AllEntries().Select(s => s.Value.Position);
+                    latest = ReadChunks(positions, throwIfNull: true).ToList();
+                }
+                finally
+                {
+                    rwLock.ExitWriteLock();
+                }
+
+                using var tempStream = new FileStream(Database.TempFilePath, FileMode.Create, FileAccess.Write);
+                foreach (var chunk in latest) WriteChunk(chunk, tempStream, updateCache: false);
+                tempStream.Flush(true);
+            }
+            catch (Exception e)
+            {
+                Log.Error(e, "Compact failed during prepare phase, database untouched");
+                if (File.Exists(Database.TempFilePath))
+                    File.Delete(Database.TempFilePath);
+                return;
+            }
+
+            rwLock.EnterWriteLock();
+            try
+            {
+                databaseStream.Dispose();
+                File.Replace(Database.TempFilePath, Database.FilePath, null);
+                databaseStream = new FileStream(Database.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, 0, FileOptions.RandomAccess);
+                Database.MemoryCache.Clear();
+                populateCacheFromFile();
+            }
+            finally
+            {
+                rwLock.ExitWriteLock();
+            }
+
+            Compactions++;
+            var ms = profiler.PopAndReturn();
+            Log.Information("Nocturne Database compacted in {time}ms from {before} -> {now} bytes", ms, sizeBefore, databaseStream.Length);
+        }
+        finally
+        {
+            Interlocked.Exchange(ref compactingFlag, 0);
+        }
+    }
 
     public void WriteChunk(Chunk chunk, Stream stream, bool updateCache = true)
     {
@@ -123,78 +253,47 @@ public class FileManager(NocturneDatabase database) : IDisposable
         try
         {
             WrappedChunk.CODEC.Write(buffer, wrapped);
+            var bytes = buffer.ToByteArraySafe();
 
             var position = stream.Seek(0, SeekOrigin.End);
-            stream.Write(buffer.ToByteArraySafe());
+            stream.Write(bytes, 0, bytes.Length);
             stream.Flush();
 
-            if (!updateCache) return;
-
-            if (chunk.ChunkType == ChunkType.Delete)
-                Database.MemoryCache.Remove(chunk.CollectionKey, chunk.Key);
-            else
-                Database.MemoryCache.Insert(chunk.CollectionKey, chunk.Key, new MemoryCache.Entry(position, chunk.Value.ReadableBytes));
+            if (updateCache)
+            {
+                if (chunk.ChunkType == ChunkType.Delete)
+                    Database.MemoryCache.Remove(chunk.CollectionKey, chunk.Key);
+                else
+                    Database.MemoryCache.Insert(chunk.CollectionKey, chunk.Key, new MemoryCache.Entry(position, chunk.Value.ReadableBytes));
+            }
         }
         finally
         {
             buffer.Release();
         }
-        CheckForAutoCompact();
-    }
-
-    public void Compact()
-    {
-        var profiler = Timings.RentAndPush();
-
-        if (File.Exists(Database.TempFilePath))
-        {
-            Log.Warning("Temporary compact file was found, your last compact may have not finished");
-            File.Delete(Database.TempFilePath);
-        }
-
-        var sizeBefore = databaseStream.Length;
-
-        try
-        {
-            var positions = Database.MemoryCache.AllEntries().Select(s => s.Value.Position);
-            var latest = ReadChunks(positions, throwIfNull: true).ToList();
-
-            using var tempStream = new FileStream(Database.TempFilePath, FileMode.Create, FileAccess.Write);
-            foreach (var chunk in latest) WriteChunk(chunk, tempStream, updateCache: false);
-            tempStream.Flush(true);
-        }
-        catch (Exception e)
-        {
-            Log.Error(e, "Compact failed during prepare phase, database untouched");
-            if (File.Exists(Database.TempFilePath))
-                File.Delete(Database.TempFilePath);
-            return;
-        }
-
-        databaseStream.Dispose();
-        File.Replace(Database.TempFilePath, Database.FilePath, null);
-        databaseStream = new FileStream(Database.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, 0, FileOptions.RandomAccess);
-        Database.MemoryCache.Clear();
-        PopulateCache();
-        Compactions++;
-
-        var ms = profiler.PopAndReturn();
-        Log.Information("Nocturne Database compacted in {time}ms from {before} -> {now} bytes", ms, sizeBefore, databaseStream.Length);
     }
 
     public void DeleteCollection(string collectionKey)
     {
-        foreach (var (key, value) in Database.MemoryCache.GetAllForCollection(collectionKey))
+        rwLock.EnterWriteLock();
+        try
         {
-            var keyBuffer = key.ToByteBuffer();
-            try
+            foreach (var (key, _) in Database.MemoryCache.GetAllForCollection(collectionKey))
             {
-                WriteChunk(new Chunk(ChunkType.Delete, collectionKey, keyBuffer, Unpooled.Empty));
+                var keyBuffer = key.ToByteBuffer();
+                try
+                {
+                    WriteChunk(new Chunk(ChunkType.Delete, collectionKey, keyBuffer, Unpooled.Empty), updateCache: true);
+                }
+                finally
+                {
+                    keyBuffer.Release();
+                }
             }
-            finally
-            {
-                keyBuffer.Release();
-            }
+        }
+        finally
+        {
+            rwLock.ExitWriteLock();
         }
 
         CheckForAutoCompact();
@@ -218,9 +317,10 @@ public class FileManager(NocturneDatabase database) : IDisposable
     {
         if (!NeedsCompaction || !Database.AutomaticallyCompact) return;
 
+        if (Volatile.Read(ref compactingFlag) == 1) return;
+
         Log.Information("Automatically compacting due to size of dead bytes being more than actual size");
         Compact();
-
     }
 
     public void Dispose()

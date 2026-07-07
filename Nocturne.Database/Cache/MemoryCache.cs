@@ -3,17 +3,16 @@
 
 using Codon.Binary;
 using DotNetty.Buffers;
-using Faster.Map.Core;
-using Nocturne.Database.Extensions;
 
 namespace Nocturne.Database.Cache;
 
 public class MemoryCache : IDisposable
 {
-    private readonly BlitzMap<string, BlitzMap<KeyBytes, Entry>> collections;
+    private readonly Dictionary<string, Dictionary<KeyBytes, Entry>> collections;
+    private readonly Lock lockObj = new();
 
     public static readonly IBinaryCodec<MemoryCache> CODEC = BinaryCodecs.For<MemoryCache>()
-        .Field(BinaryCodecs.STRING.BlitzMapTo(KeyBytes.CODEC.BlitzMapTo(Entry.CODEC)), m => m.collections)
+        .Field(BinaryCodecs.STRING.MapTo(KeyBytes.CODEC.MapTo(Entry.CODEC)), m => m.collections)
         .Build(collections => new MemoryCache(collections));
 
     public long DeadBytes { get; private set; }
@@ -23,89 +22,103 @@ public class MemoryCache : IDisposable
         get
         {
             int total = 0;
-            foreach (var outer in collections)
-                total += outer.Value.Count;
+            lock (lockObj)
+            {
+                foreach (var outer in collections)
+                    total += outer.Value.Count;
+            }
             return total;
         }
     }
 
     public IEnumerable<KeyValuePair<KeyBytes, Entry>> AllEntries()
     {
-        var result = new List<KeyValuePair<KeyBytes, Entry>>(Size);
-
-        foreach (var outerEntry in collections)
+        lock (lockObj)
         {
-            foreach (var innerEntry in outerEntry.Value)
-            {
-                result.Add(new KeyValuePair<KeyBytes, Entry>(innerEntry.Key, innerEntry.Value));
-            }
-        }
+            var result = new List<KeyValuePair<KeyBytes, Entry>>(Size);
+            result.AddRange(from outerEntry in collections from innerEntry in outerEntry.Value select new KeyValuePair<KeyBytes, Entry>(innerEntry.Key, innerEntry.Value));
 
-        return result;
+            return result;
+        }
     }
 
     public MemoryCache()
     {
-        collections = new BlitzMap<string, BlitzMap<KeyBytes, Entry>>();
-
+        collections = new Dictionary<string, Dictionary<KeyBytes, Entry>>();
     }
 
-    private MemoryCache(BlitzMap<string, BlitzMap<KeyBytes, Entry>> collections)
+    private MemoryCache(Dictionary<string, Dictionary<KeyBytes, Entry>> collections)
     {
         this.collections = collections;
     }
 
     public Entry? Get(string nestedKey, IByteBuffer key)
     {
-        if (!collections.Contains(nestedKey)) return null;
-        collections.Get(nestedKey, out var map);
+        lock (lockObj)
+        {
+            if (!collections.ContainsKey(nestedKey)) return null;
+            collections.TryGetValue(nestedKey, out var map);
 
-        return map.Get(KeyBytes.FromBuffer(key), out var entry) ? entry : null;
+            return map.TryGetValue(KeyBytes.FromBuffer(key), out var entry) ? entry : null;
+        }
     }
 
-    public int CountForCollection(string collectionKey) =>
-        collections.Get(collectionKey, out var map) ? map.Count : 0;
+    public int CountForCollection(string collectionKey)
+    {
+        lock (lockObj)
+        {
+            return collections.TryGetValue(collectionKey, out var map) ? map.Count : 0;
+        }
+    }
 
     public IDictionary<KeyBytes, Entry> GetAllForCollection(string collectionKey)
     {
-        var result = new Dictionary<KeyBytes, Entry>();
-        if (!collections.Get(collectionKey, out var map)) return result;
-
-        foreach (var innerEntry in map)
+        lock (lockObj)
         {
-            result[innerEntry.Key] = innerEntry.Value;
-        }
+            var result = new Dictionary<KeyBytes, Entry>();
+            if (!collections.TryGetValue(collectionKey, out var map)) return result;
 
-        return result;
+            foreach (var innerEntry in map)
+            {
+                result[innerEntry.Key] = innerEntry.Value;
+            }
+
+            return result;
+        }
     }
 
 
     public void Insert(string collectionKey, IByteBuffer key, Entry entry)
     {
-        if (!collections.Get(collectionKey, out var inner))
+        lock (lockObj)
         {
-            inner = new BlitzMap<KeyBytes, Entry>();
-            collections.Insert(collectionKey, inner);
+            if (!collections.TryGetValue(collectionKey, out var inner))
+            {
+                inner = new Dictionary<KeyBytes, Entry>();
+                collections[collectionKey] = inner;
+            }
+
+
+            var keyBytes = KeyBytes.FromBuffer(key);
+            if (inner.TryGetValue(keyBytes, out var old))
+                DeadBytes += old.Length;
+
+            inner[keyBytes] = entry;
         }
-
-
-        var keyBytes = KeyBytes.FromBuffer(key);
-        if (inner.Get(keyBytes, out var old))
-            DeadBytes += old.Length;
-
-        inner.InsertOrUpdate(keyBytes, entry);
-
     }
 
     public void Remove(string collectionKey, IByteBuffer key)
     {
-        if (collections.Get(collectionKey, out var inner))
+        lock (lockObj)
         {
-            var keyBytes = KeyBytes.FromBuffer(key);
-            if (inner.Get(keyBytes, out var old))
-                DeadBytes += old.Length;
+            if (collections.TryGetValue(collectionKey, out var inner))
+            {
+                var keyBytes = KeyBytes.FromBuffer(key);
+                if (inner.TryGetValue(keyBytes, out var old))
+                    DeadBytes += old.Length;
 
-            inner.Remove(keyBytes);
+                inner.Remove(keyBytes);
+            }
         }
     }
 
@@ -128,7 +141,10 @@ public class MemoryCache : IDisposable
 
     public void Clear()
     {
-        collections.Clear();
-        DeadBytes = 0;
+        lock (lockObj)
+        {
+            collections.Clear();
+            DeadBytes = 0;
+        }
     }
 }

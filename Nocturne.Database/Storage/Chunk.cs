@@ -36,15 +36,4 @@ public class Chunk(ChunkType type, string collectionKey, IByteBuffer key, IByteB
         Value.Release();
         Key.Release();
     }
-
-    // (obviously byte buffers/arraays and strings are length prefixed)
-
-    // Example: Meta type
-    // [chunk size][ChunkType.Meta][__meta][empty][empty][9048093]
-
-    // Example: Record
-    //[chunk size][ChunkType.Record][person][{byte data}][{ byte data}][4890345]
-
-    // Example: Delete
-    //[chunk size][ChunkType.Delete][person][{byte data}][empty][4890345]
 }
