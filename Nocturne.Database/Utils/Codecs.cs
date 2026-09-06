@@ -7,7 +7,7 @@ using Faster.Map.Core;
 
 namespace Nocturne.Database.Utils;
 
-public class Codecs
+public static class Codecs
 {
 
     public class BlitzMapBinaryCodec<TKey, TValue>(IBinaryCodec<TKey> keyCodec, IBinaryCodec<TValue> valueCodec) : IBinaryCodec<BlitzMap<TKey, TValue>>
@@ -15,10 +15,10 @@ public class Codecs
         public void Write(IByteBuffer buffer, BlitzMap<TKey, TValue> value)
         {
             BinaryCodecs.VAR_INT.Write(buffer, value.Count);
-            foreach (var (key, val) in value)
+            foreach (var map in value)
             {
-                keyCodec.Write(buffer, key);
-                valueCodec.Write(buffer, val);
+                keyCodec.Write(buffer, map.Key);
+                valueCodec.Write(buffer, map.Value);
             }
         }
 

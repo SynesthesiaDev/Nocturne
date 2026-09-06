@@ -16,11 +16,11 @@
     </PropertyGroup>
 
     <ItemGroup>
-      <PackageReference Include="Faster.Map" Version="8.1.1" />
-      <PackageReference Include="Serilog" Version="4.4.0-dev-02437" />
+      <PackageReference Include="Faster.Map" Version="9.0.3" />
+      <PackageReference Include="Serilog" Version="4.4.0" />
       <PackageReference Include="Serilog.Sinks.TextWriter" Version="3.0.0" />
-      <PackageReference Include="SynesthesiaDev.Codon.BinaryCodec" Version="2026.623.0" />
-      <PackageReference Include="SynesthesiaUtils" Version="2026.614.0" />
+      <PackageReference Include="SynesthesiaDev.Codon.BinaryCodec" Version="2026.902.0" />
+      <PackageReference Include="SynesthesiaUtils" Version="2026.804.0" />
     </ItemGroup>
 
 </Project>
