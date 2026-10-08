@@ -173,78 +173,83 @@ public class FileManager(NocturneDatabase database) : IDisposable
             buffer.Release();
         }
 
-        CheckForAutoCompact();
+        // CheckForAutoCompact();
     }
 
     public void Compact()
+{
+    if (Interlocked.Exchange(ref compactingFlag, 1) == 1)
     {
-        if (Interlocked.Exchange(ref compactingFlag, 1) == 1)
+        Log.Warning("Compact already in progress, skipping");
+        return;
+    }
+
+    try
+    {
+        var profiler = Timings.RentAndPush();
+
+        if (File.Exists(Database.TempFilePath))
         {
-            Log.Warning("Compact already in progress, skipping");
-            return;
+            Log.Warning("Temporary compact file was found, your last compact may have not finished");
+            File.Delete(Database.TempFilePath);
         }
 
+        var sizeBefore = databaseStream.Length;
+
+        rwLock.EnterWriteLock();
         try
         {
-            var profiler = Timings.RentAndPush();
+            var positions = Database.MemoryCache.AllEntries().Select(t => t.Value.Position);
+            var latest = ReadChunks(positions, throwIfNull: true).ToList();
 
-            if (File.Exists(Database.TempFilePath))
+            if (latest.Count == 0 && Database.MemoryCache.Size > 0)
             {
-                Log.Warning("Temporary compact file was found, your last compact may have not finished");
-                File.Delete(Database.TempFilePath);
-            }
-
-            var sizeBefore = databaseStream.Length;
-
-            try
-            {
-                rwLock.EnterWriteLock();
-                List<Chunk> latest;
-                try
-                {
-                    var positions = Database.MemoryCache.AllEntries().Select(s => s.Value.Position);
-                    latest = ReadChunks(positions, throwIfNull: true).ToList();
-                }
-                finally
-                {
-                    rwLock.ExitWriteLock();
-                }
-
-                using var tempStream = new FileStream(Database.TempFilePath, FileMode.Create, FileAccess.Write);
-                foreach (var chunk in latest) WriteChunk(chunk, tempStream, updateCache: false);
-                tempStream.Flush(true);
-            }
-            catch (Exception e)
-            {
-                Log.Error(e, "Compact failed during prepare phase, database untouched");
-                if (File.Exists(Database.TempFilePath))
-                    File.Delete(Database.TempFilePath);
+                Log.Error("Compact snapshot is empty but cache has {n} entries; aborting",
+                    Database.MemoryCache.Size);
                 return;
             }
 
-            rwLock.EnterWriteLock();
-            try
+            using (var tempStream = new FileStream(
+                       Database.TempFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
-                databaseStream.Dispose();
-                File.Replace(Database.TempFilePath, Database.FilePath, null);
-                databaseStream = new FileStream(Database.FilePath, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, 0, FileOptions.RandomAccess);
-                Database.MemoryCache.Clear();
-                populateCacheFromFile();
-            }
-            finally
-            {
-                rwLock.ExitWriteLock();
+                foreach (var chunk in latest)
+                {
+                    try { WriteChunk(chunk, tempStream, updateCache: false); }
+                    finally { chunk.Release(); }
+                }
+                tempStream.Flush(true);
             }
 
-            Compactions++;
-            var ms = profiler.PopAndReturn();
-            Log.Information("Nocturne Database compacted in {time}ms from {before} -> {now} bytes", ms, sizeBefore, databaseStream.Length);
+            databaseStream.Dispose();
+            File.Replace(Database.TempFilePath, Database.FilePath, null);
+            databaseStream = new FileStream(
+                Database.FilePath, FileMode.Open, FileAccess.ReadWrite,
+                FileShare.Read, 0, FileOptions.RandomAccess);
+
+            Database.MemoryCache.Clear();
+            populateCacheFromFile();
         }
         finally
         {
-            Interlocked.Exchange(ref compactingFlag, 0);
+            rwLock.ExitWriteLock();
         }
+
+        Compactions++;
+        var ms = profiler.PopAndReturn();
+        Log.Information("Nocturne Database compacted in {time}ms from {before} -> {now} bytes",
+            ms, sizeBefore, databaseStream.Length);
     }
+    catch (Exception e)
+    {
+        Log.Error(e, "Compact failed, database untouched");
+        if (File.Exists(Database.TempFilePath))
+            File.Delete(Database.TempFilePath);
+    }
+    finally
+    {
+        Interlocked.Exchange(ref compactingFlag, 0);
+    }
+}
 
     public void WriteChunk(Chunk chunk, Stream stream, bool updateCache = true)
     {
@@ -296,7 +301,7 @@ public class FileManager(NocturneDatabase database) : IDisposable
             rwLock.ExitWriteLock();
         }
 
-        CheckForAutoCompact();
+        // CheckForAutoCompact();
     }
 
     public void MigrateCollection(string collectionKey, Func<IByteBuffer, IByteBuffer> transform)

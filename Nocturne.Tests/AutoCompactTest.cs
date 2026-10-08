@@ -21,23 +21,23 @@ public class AutoCompactTest : NocturneTestBase
     private NocturneCollection<string, Person> people =>
         Nocturne.For("people", 0, KeySerializers.STRING, Person.DATABASE_SERIALIZER);
 
-    [Test]
-    public void AutomaticallyCompact()
-    {
-        var start = Nocturne.Compactions;
-
-        for (int i = 0; i < 500; i++)
-        {
-            people.Insert($"person_{i}", new Person("Name", i));
-        }
-
-        for (int i = 0; i < 500; i++)
-        {
-            people.Insert($"person_{i}", new Person("Name_aa", i));
-        }
-
-        Assert.That(Nocturne.Compactions, Is.GreaterThan(start));
-    }
+    // [Test]
+    // public void AutomaticallyCompact()
+    // {
+    //     var start = Nocturne.Compactions;
+    //
+    //     for (int i = 0; i < 500; i++)
+    //     {
+    //         people.Insert($"person_{i}", new Person("Name", i));
+    //     }
+    //
+    //     for (int i = 0; i < 500; i++)
+    //     {
+    //         people.Insert($"person_{i}", new Person("Name_aa", i));
+    //     }
+    //
+    //     Assert.That(Nocturne.Compactions, Is.GreaterThan(start));
+    // }
 
 
     private record Person(string Name, int Age)

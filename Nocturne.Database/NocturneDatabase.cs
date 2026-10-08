@@ -43,7 +43,7 @@ public class NocturneDatabase : IDisposable
         if (!Directory.Exists(DirectoryPath))
             Directory.CreateDirectory(DirectoryPath);
 
-        var isNewDatabase = !File.Exists(FilePath);
+        var isNewDatabase = !File.Exists(FilePath) || new FileInfo(FilePath).Length == 0;
 
         if (isNewDatabase)
         {
@@ -75,6 +75,22 @@ public class NocturneDatabase : IDisposable
         if (CompactOnLaunch && FileManager.NeedsCompaction) Compact();
 
         IsOpen = true;
+
+        if (AutomaticallyCompact)
+        {
+            _ = Task.Run(async () =>
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromHours(1));
+                while (await timer.WaitForNextTickAsync())
+                {
+                    try
+                    {
+                        if (FileManager.NeedsCompaction) Compact();
+                    }
+                    catch (Exception e) { Log.Error(e, "Auto-compact failed"); }
+                }
+            });
+        }
     }
 
     public void Compact() => FileManager.Compact();
