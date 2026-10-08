@@ -18,7 +18,8 @@ public class MetaNocturneCollection(NocturneDatabase databaseContext) : Nocturne
     public void UpdateSchemaVersionFor<TKey, TValue>(NocturneCollection<TKey, TValue> collection, int newSchemaVersion) where TValue : class
     {
         var localCopy = new BlitzMap<string, int>();
-        DatabaseContext.Metadata.SchemaVersions.Copy(localCopy);
+        // DatabaseContext.Metadata.SchemaVersions.Copy(localCopy);
+        localCopy.Copy(DatabaseContext.Metadata.SchemaVersions);
         localCopy.InsertOrUpdate(collection.CollectionKey, newSchemaVersion);
 
         var meta = DatabaseContext.Metadata with { SchemaVersions = localCopy };

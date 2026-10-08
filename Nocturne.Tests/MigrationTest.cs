@@ -5,6 +5,7 @@ using Codon.Binary;
 using DotNetty.Buffers;
 using Nocturne.Database.API;
 using Nocturne.Database.Exceptions;
+using Nocturne.Database.Extensions;
 using Nocturne.Database.Migrations;
 using Nocturne.Database.Storage;
 
@@ -143,5 +144,49 @@ public class MigrationTest : NocturneTestBase
         reopened.Insert("zara", new PersonV1("Zara", 19, true));
 
         Assert.That(reopened.Find("zara").Name, Is.EqualTo("Zara"));
+    }
+
+    [Test]
+    public void MigrationPreservesSchemaVersionOfOtherCollections()
+    {
+        writeLegacyData("stelle", new PersonV0("Stelle", 23, true, "gay /pos"));
+
+        var petKeyBuffer = Unpooled.Buffer();
+        var petValueBuffer = Unpooled.Buffer();
+        try
+        {
+            KeySerializers.STRING.Write(petKeyBuffer, "bella");
+            PersonV0.CODEC.Write(petValueBuffer, new PersonV0("Bella", 4, true, "good girl"));
+            Nocturne.FileManager.WriteChunk(new Chunk(ChunkType.Record, "pets", petKeyBuffer, petValueBuffer));
+        }
+        finally
+        {
+            petKeyBuffer.Release();
+            petValueBuffer.Release();
+        }
+
+        var people = Nocturne.For("people", 1, KeySerializers.STRING, PersonV1.DATABASE_SERIALIZER,
+            migrationStrategy: getMigrationStrategy());
+        Assert.That(people.Find("stelle").Name, Is.EqualTo("Stelle"));
+
+        var pets = Nocturne.For("pets", 1, KeySerializers.STRING, PersonV1.DATABASE_SERIALIZER,
+            migrationStrategy: getMigrationStrategy());
+        Assert.That(pets.Find("bella").Name, Is.EqualTo("Bella"));
+
+        var metadata = Nocturne.MetaCollection.Get();
+        Assert.That(metadata.SchemaVersions.GetOrNullStruct("people"), Is.EqualTo(1),
+            "Migrating 'pets' wiped the schema version of 'people'");
+        Assert.That(metadata.SchemaVersions.GetOrNullStruct("pets"), Is.EqualTo(1));
+
+        SimulateRestart();
+
+        Assert.DoesNotThrow(() => Nocturne.For("people", 1, KeySerializers.STRING,
+            PersonV1.DATABASE_SERIALIZER, migrationStrategy: null));
+        Assert.DoesNotThrow(() => Nocturne.For("pets", 1, KeySerializers.STRING,
+            PersonV1.DATABASE_SERIALIZER, migrationStrategy: null));
+
+        var reopenedPeople = Nocturne.For("people", 1, KeySerializers.STRING,
+            PersonV1.DATABASE_SERIALIZER, migrationStrategy: null);
+        Assert.That(reopenedPeople.Find("stelle").Name, Is.EqualTo("Stelle"));
     }
 }
