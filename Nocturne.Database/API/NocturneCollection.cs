@@ -8,6 +8,7 @@ using Nocturne.Database.Extensions;
 using Nocturne.Database.Migrations;
 using Nocturne.Database.Storage;
 using Serilog;
+using Synesthesia.Utils.Profiler;
 
 namespace Nocturne.Database.API;
 
@@ -41,6 +42,7 @@ public class NocturneCollection<TKey, TValue>(
                 break;
 
             case IMigrationStrategy.Migration migration:
+                var profiler = Timings.RentAndPush();
                 var currentVersion = LatestCommitedSchemaVersion;
                 var currentTransform = default(Func<IByteBuffer, IByteBuffer>);
 
@@ -59,6 +61,7 @@ public class NocturneCollection<TKey, TValue>(
                 Log.Information("Performing migration on collection {key} from version {old} -> {new}", CollectionKey, LatestCommitedSchemaVersion, SchemaVersion);
                 FileManager.MigrateCollection(CollectionKey, currentTransform!);
                 DatabaseContext.MetaCollection.UpdateSchemaVersionFor(this, SchemaVersion);
+                Log.Information("Finished migrating collection {key} to schema version {new} in {time}ms", CollectionKey, LatestCommitedSchemaVersion, profiler.PopAndReturn());
                 break;
 
             case null:

@@ -17,6 +17,8 @@ public class NocturneDatabase : IDisposable
     public bool CompactOnLaunch { get; init; } = true;
     public bool AutomaticallyCompact { get; init; } = true;
 
+    public bool CreateBackupWhenMigrating { get; init; } = true;
+
     public string DirectoryPath => Path.GetDirectoryName(FilePath) ?? throw new InvalidOperationException("Invalid file path specified (cannot get directory name)");
     public string TempFilePath => Path.Combine(DirectoryPath, "compact.tmp") ?? throw new InvalidOperationException("Invalid file path specified (cannot get directory name)");
 
@@ -36,7 +38,7 @@ public class NocturneDatabase : IDisposable
 
     public void Open()
     {
-        if(IsOpen) return;
+        if (IsOpen) return;
 
         Log.Information("Opening Nocturne database..");
 
@@ -105,6 +107,8 @@ public class NocturneDatabase : IDisposable
 
         return collection;
     }
+
+
 
     public void Dispose()
     {

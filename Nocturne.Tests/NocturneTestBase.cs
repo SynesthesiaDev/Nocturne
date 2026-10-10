@@ -16,7 +16,8 @@ public abstract class NocturneTestBase
         {
             FilePath = filePath,
             AutomaticallyCompact = false,
-            CompactOnLaunch = false
+            CompactOnLaunch = false,
+            CreateBackupWhenMigrating = false
         };
 
     [SetUp]

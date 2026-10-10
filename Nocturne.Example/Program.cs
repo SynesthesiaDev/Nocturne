@@ -1,13 +1,15 @@
 ﻿using Codon.Binary;
+using DotNetty.Buffers;
 using Nocturne.Database;
 using Nocturne.Database.API;
+using Nocturne.Database.Migrations;
 using Serilog;
 using Serilog.Events;
 using Serilog.Sinks.SpectreConsole;
 
 namespace Nocturne.Example;
 
-public class Program
+public static class Program
 {
     public static readonly NocturneDatabase NOCTURNE_DATABASE = new NocturneDatabase
     {
@@ -44,8 +46,6 @@ public class Program
         //     Person.DB_COLLECTION.Insert(i.ToString(), person);
         // }
 
-        Console.WriteLine("Press Enter to exit...");
-        Console.ReadLine();
     }
 }
 
@@ -65,8 +65,13 @@ public record Person(string Name, int Age, bool IsCool)
 
     public static readonly NocturneCollection<string, Person> DB_COLLECTION = Program.NOCTURNE_DATABASE.For(
         collectionKey: "people",
-        schemaVersion: 1,
+        schemaVersion: 3,
         keySerializer: KeySerializers.STRING,
-        valueSerializer: DATABASE_SERIALIZER
+        valueSerializer: DATABASE_SERIALIZER,
+        migrationStrategy: IMigrationStrategy.Migrations()
+            .Add(0, Unpooled.CopiedBuffer)
+            .Add(1, Unpooled.CopiedBuffer)
+            .Add(2, Unpooled.CopiedBuffer)
+            .Build()
     );
 }
